@@ -156,6 +156,17 @@ bluesky-chat/
     └── client-metadata.json    # OAuth client metadata
 ```
 
+## Releasing
+
+To create a release:
+
+```bash
+npm version patch   # or minor/major — bumps version and creates git tag
+git push --tags
+```
+
+GitHub Actions builds for macOS, Windows, and Linux, then uploads artifacts to a draft release.
+
 ## Authentication
 
 ### OAuth
