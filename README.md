@@ -117,8 +117,22 @@ pnpm install     # Install dependencies
 pnpm dev         # Run in development mode
 pnpm build       # Build for production
 pnpm dist        # Package for distribution
+pnpm dist:beta   # Package beta build (with devtools)
+pnpm dist:prod   # Package production build (no devtools)
 pnpm test        # Run tests
 ```
+
+### Build Modes
+
+The app has three build modes with different developer tools access:
+
+| Mode | Trigger | DevTools |
+|------|---------|----------|
+| Development | `pnpm dev` | Auto-opens on launch |
+| Beta | Version contains `-beta` (e.g., `1.0.0-beta.1`) | View → Toggle Developer Tools |
+| Production | Clean version (e.g., `1.0.0`) | Disabled |
+
+Build mode is detected automatically from the version string — no environment variables needed.
 
 ### Project Structure
 
@@ -158,14 +172,26 @@ bluesky-chat/
 
 ## Releasing
 
-To create a release:
+### Beta Release
 
 ```bash
-npm version patch   # or minor/major — bumps version and creates git tag
-git push --tags
+pnpm release:beta   # Bumps to x.x.x-beta.N, creates tag, pushes
 ```
 
-GitHub Actions builds for macOS, Windows, and Linux, then uploads artifacts to a draft release.
+### Production Release
+
+```bash
+pnpm release        # Bumps patch version, creates tag, pushes
+```
+
+For minor or major releases:
+
+```bash
+npm version minor && git push --tags
+npm version major && git push --tags
+```
+
+GitHub Actions builds for macOS, Windows, and Linux, then uploads artifacts to a draft release. Beta releases include developer tools access; production releases have devtools disabled.
 
 ## Authentication
 
