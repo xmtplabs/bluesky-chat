@@ -3,11 +3,15 @@ import { persist, createJSONStorage } from 'zustand/middleware'
 import type { AppSettings, NotificationSettings } from '../types'
 
 interface SettingsState extends AppSettings {
+  // Dev tools panel state (for menu toggle)
+  devToolsPanelOpen: boolean
+
   // Actions
   setNotificationsEnabled: (enabled: boolean) => void
   setNotificationSound: (enabled: boolean) => void
   setShowPreview: (enabled: boolean) => void
   setTheme: (theme: 'light' | 'dark' | 'system') => void
+  toggleDevToolsPanel: () => void
   resetSettings: () => void
 }
 
@@ -24,6 +28,7 @@ export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
       ...defaultSettings,
+      devToolsPanelOpen: false,
 
       setNotificationsEnabled: (enabled: boolean) =>
         set((state) => ({
@@ -41,6 +46,8 @@ export const useSettingsStore = create<SettingsState>()(
         })),
 
       setTheme: (theme: 'light' | 'dark' | 'system') => set({ theme }),
+
+      toggleDevToolsPanel: () => set((state) => ({ devToolsPanelOpen: !state.devToolsPanelOpen })),
 
       resetSettings: () => set(defaultSettings)
     }),

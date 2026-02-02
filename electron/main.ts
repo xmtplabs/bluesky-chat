@@ -276,7 +276,12 @@ function createApplicationMenu(): void {
           ? [
               { type: 'separator' as const },
               {
-                label: 'Toggle Developer Tools',
+                label: 'Toggle Dev Tools Panel',
+                accelerator: isMac ? 'Alt+Command+D' : 'Ctrl+Shift+D',
+                click: () => mainWindow?.webContents.send('toggle-dev-tools-panel')
+              },
+              {
+                label: 'Toggle Chrome DevTools',
                 accelerator: isMac ? 'Alt+Command+I' : 'Ctrl+Shift+I',
                 click: () => mainWindow?.webContents.toggleDevTools()
               }
@@ -310,6 +315,9 @@ function createApplicationMenu(): void {
 // App lifecycle
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.bluesky.chat')
+
+  // Set proper display name for menus (package.json name is "bluesky-chat")
+  app.setName('Bluesky Chat')
 
   // Register custom protocol handler for packaged app
   // This serves files from the renderer directory with a consistent origin
@@ -366,6 +374,9 @@ if (process.defaultApp) {
 
 // IPC Handlers
 function setupIpcHandlers(): void {
+  // Build mode
+  ipcMain.handle('get-build-mode', () => buildMode)
+
   // Secure storage - only allow XMTP wallet keys
   const ALLOWED_STORAGE_KEY_PREFIX = 'xmtp-wallet-key-'
 

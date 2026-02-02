@@ -59,8 +59,13 @@ export interface AppSettings {
   theme: 'light' | 'dark' | 'system'
 }
 
+export type BuildMode = 'development' | 'beta' | 'production'
+
 // IPC channel types
 export interface ElectronAPI {
+  // Build mode
+  getBuildMode: () => Promise<BuildMode>
+
   // Storage
   secureStore: (key: string, value: string) => Promise<void>
   secureRetrieve: (key: string) => Promise<string | null>
@@ -76,6 +81,10 @@ export interface ElectronAPI {
   setBadgeCount: (count: number) => void
   onOAuthCallback: (callback: (data: { code: string; state: string; iss?: string }) => void) => void
   removeOAuthCallback: () => void
+
+  // Dev tools panel toggle (from menu)
+  onToggleDevToolsPanel: (callback: () => void) => void
+  removeToggleDevToolsPanel: () => void
 }
 
 declare global {

@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useSettings } from '../context/SettingsContext'
 import { useAuthStore, useOnboardingStore } from '../../../stores/authStore'
+import { useSettingsStore } from '../../../stores/settingsStore'
 import { blueskyService } from '../../../services/bluesky'
 import { identityService } from '../../../services/identity'
 import { clearPrivateKey } from '../../../services/signer'
-
-const IS_DEV = import.meta.env.MODE !== 'production'
+import type { BuildMode } from '../../../types'
 
 function truncateId(id: string, chars = 8): string {
   if (id.length <= chars * 2 + 3) return id
@@ -20,6 +20,8 @@ export function DevTools() {
   const { actions, meta } = useSettings()
   const { blueskyProfile, xmtpInboxId, identityMismatch, signatureInvalid, publishedInboxId } = meta
 
+  const { devToolsPanelOpen } = useSettingsStore()
+  const [buildMode, setBuildMode] = useState<BuildMode | null>(null)
   const [showDevTools, setShowDevTools] = useState(false)
   const [isWorking, setIsWorking] = useState(false)
   const [atprotoRecord, setAtprotoRecord] = useState<{ inboxId: string; signature: string } | null | 'loading'>('loading')
@@ -30,8 +32,22 @@ export function DevTools() {
   const hasWriteAccess = blueskyService.hasRepoWriteAccess()
   const onboardingPhase = blueskyProfile?.did ? getPhase(blueskyProfile.did) : { phase: 'fresh' as const }
 
-  // Don't render anything in production
-  if (!IS_DEV) return null
+  // Fetch build mode from main process
+  useEffect(() => {
+    window.electronAPI?.getBuildMode?.().then(setBuildMode).catch(() => {
+      // Fallback for non-Electron environments (e.g., tests)
+      setBuildMode('development')
+    })
+  }, [])
+
+  // Visibility rules:
+  // - Always visible in development mode
+  // - Visible in beta mode only when toggled on via menu
+  // - Never visible in production
+  // - Don't render until we know the build mode
+  if (buildMode === null) return null
+  const isVisible = buildMode === 'development' || (buildMode === 'beta' && devToolsPanelOpen)
+  if (!isVisible) return null
 
   // Fetch current ATProto record on mount when expanded
   useEffect(() => {
