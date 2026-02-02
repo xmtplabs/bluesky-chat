@@ -1,9 +1,22 @@
-import { app, BrowserWindow, ipcMain, Notification, shell, nativeImage } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, Notification, shell, nativeImage } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 
 const iconPath = join(__dirname, '../../build/icon.png')
 import { SecureStorage } from './services/storage'
+
+// Build mode detection based on Signal Desktop pattern
+type BuildMode = 'development' | 'beta' | 'production'
+
+function getBuildMode(): BuildMode {
+  // Running with vite dev server
+  if (!app.isPackaged) return 'development'
+  // Packaged app with prerelease version (e.g., 1.0.0-beta.1)
+  if (app.getVersion().includes('-')) return 'beta'
+  return 'production'
+}
+
+const buildMode = getBuildMode()
 
 let mainWindow: BrowserWindow | null = null
 let authWindow: BrowserWindow | null = null
@@ -24,12 +37,18 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.mjs'),
       sandbox: false,
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      // DevTools: always in dev, toggle in beta, disabled in production
+      devTools: buildMode !== 'production'
     }
   })
 
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show()
+    // Auto-open devtools in development mode
+    if (buildMode === 'development') {
+      mainWindow?.webContents.openDevTools()
+    }
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -189,6 +208,85 @@ function createAuthWindow(url: string): Promise<{ code: string; state: string; i
   })
 }
 
+// Build application menu
+function createApplicationMenu(): void {
+  const isMac = process.platform === 'darwin'
+
+  const template: Electron.MenuItemConstructorOptions[] = [
+    // App menu (macOS only)
+    ...(isMac
+      ? [
+          {
+            label: app.name,
+            submenu: [
+              { role: 'about' as const },
+              { type: 'separator' as const },
+              { role: 'services' as const },
+              { type: 'separator' as const },
+              { role: 'hide' as const },
+              { role: 'hideOthers' as const },
+              { role: 'unhide' as const },
+              { type: 'separator' as const },
+              { role: 'quit' as const }
+            ]
+          }
+        ]
+      : []),
+    // Edit menu
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' }
+      ]
+    },
+    // View menu
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'forceReload' },
+        // Only show DevTools toggle in development and beta
+        ...(buildMode !== 'production'
+          ? [
+              { type: 'separator' as const },
+              {
+                label: 'Toggle Developer Tools',
+                accelerator: isMac ? 'Alt+Command+I' : 'Ctrl+Shift+I',
+                click: () => mainWindow?.webContents.toggleDevTools()
+              }
+            ]
+          : []),
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' }
+      ]
+    },
+    // Window menu
+    {
+      label: 'Window',
+      submenu: [
+        { role: 'minimize' },
+        { role: 'zoom' },
+        ...(isMac
+          ? [{ type: 'separator' as const }, { role: 'front' as const }]
+          : [{ role: 'close' as const }])
+      ]
+    }
+  ]
+
+  const menu = Menu.buildFromTemplate(template)
+  Menu.setApplicationMenu(menu)
+}
+
 // App lifecycle
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.bluesky.chat')
@@ -203,6 +301,7 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
+  createApplicationMenu()
   setupIpcHandlers()
   createWindow()
 

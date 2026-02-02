@@ -33,3 +33,4 @@ linux:
   category: Network
 publish:
   provider: github
+generateUpdatesFilesForAllChannels: true

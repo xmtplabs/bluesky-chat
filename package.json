@@ -12,6 +12,10 @@
     "postinstall": "electron-builder install-app-deps",
     "pack": "electron-builder --dir",
     "dist": "electron-builder",
+    "dist:beta": "npm version prerelease --preid=beta --no-git-tag-version && electron-builder",
+    "dist:prod": "electron-builder",
+    "release:beta": "npm version prerelease --preid=beta && git push --tags",
+    "release": "npm version patch && git push --tags",
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage"
