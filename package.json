@@ -1,6 +1,6 @@
 {
   "name": "bluesky-chat",
-  "version": "1.0.1-beta.7",
+  "version": "1.0.1-beta.8",
   "type": "module",
   "description": "Electron desktop chat app with Bluesky identity and XMTP encryption",
   "author": "XMTP Labs <info@xmtp.org>",
@@ -18,7 +18,8 @@
     "release": "npm version patch && git push --follow-tags",
     "test": "vitest",
     "test:run": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "clean": "rm -rf node_modules out dist"
   },
   "dependencies": {
     "@atproto/api": "0.15.5",
