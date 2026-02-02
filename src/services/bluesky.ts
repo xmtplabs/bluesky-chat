@@ -18,8 +18,19 @@ class BlueskyService {
       // We request 'transition:generic' to enable writing custom collections
       // like org.xmtp.inbox to the user's PDS.
       const loc = window.location
-      const hostname = loc.hostname === 'localhost' ? '127.0.0.1' : loc.hostname
-      const redirectUri = `http://${hostname}:${loc.port}${loc.pathname}`
+
+      // In packaged Electron apps, window.location is file:// which isn't valid for OAuth.
+      // Use a fixed loopback URI instead - Electron intercepts the redirect before
+      // the browser actually navigates there, so no server needs to be listening.
+      let redirectUri: string
+      if (loc.protocol === 'http:' || loc.protocol === 'https:') {
+        // Dev mode - use actual location
+        const hostname = loc.hostname === 'localhost' ? '127.0.0.1' : loc.hostname
+        redirectUri = `http://${hostname}:${loc.port}${loc.pathname}`
+      } else {
+        // Packaged app - use fixed loopback URI
+        redirectUri = 'http://127.0.0.1/oauth/callback'
+      }
 
       const clientId = buildAtprotoLoopbackClientId({
         scope: 'atproto transition:generic',

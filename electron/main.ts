@@ -1,9 +1,28 @@
-import { app, BrowserWindow, ipcMain, Menu, Notification, shell, nativeImage } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, Notification, shell, nativeImage, protocol, net } from 'electron'
 import { join } from 'path'
+import { pathToFileURL } from 'url'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 
 const iconPath = join(__dirname, '../../build/icon.png')
 import { SecureStorage } from './services/storage'
+
+// Custom protocol scheme for consistent storage origin in packaged apps
+// Using file:// causes storage isolation issues; app:// provides a stable origin
+const PROTOCOL_SCHEME = 'app'
+
+// Register protocol scheme as privileged (must be done before app is ready)
+// This enables localStorage, IndexedDB, and other web APIs to work properly
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: PROTOCOL_SCHEME,
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true
+    }
+  }
+])
 
 // Build mode detection based on Signal Desktop pattern
 type BuildMode = 'development' | 'beta' | 'production'
@@ -59,7 +78,8 @@ function createWindow(): void {
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    // Use custom protocol for consistent storage origin
+    mainWindow.loadURL(`${PROTOCOL_SCHEME}://./index.html`)
   }
 }
 
@@ -290,6 +310,23 @@ function createApplicationMenu(): void {
 // App lifecycle
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.bluesky.chat')
+
+  // Register custom protocol handler for packaged app
+  // This serves files from the renderer directory with a consistent origin
+  if (!is.dev) {
+    const rendererPath = join(__dirname, '../renderer')
+    protocol.handle(PROTOCOL_SCHEME, (request) => {
+      // Extract path from app://./path URL
+      const url = new URL(request.url)
+      let filePath = url.pathname
+      // Handle root path
+      if (filePath === '/' || filePath === '') {
+        filePath = '/index.html'
+      }
+      const fullPath = join(rendererPath, filePath)
+      return net.fetch(pathToFileURL(fullPath).toString())
+    })
+  }
 
   // Set dock icon on macOS
   if (process.platform === 'darwin') {
