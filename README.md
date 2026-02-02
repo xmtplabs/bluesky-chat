@@ -209,8 +209,8 @@ pnpm release        # Bumps patch version, creates tag, pushes
 For minor or major releases:
 
 ```bash
-npm version minor && git push --tags
-npm version major && git push --tags
+npm version minor && git push --follow-tags
+npm version major && git push --follow-tags
 ```
 
 GitHub Actions builds for macOS, Windows, and Linux, then uploads artifacts to a draft release. Beta releases include developer tools access; production releases have devtools disabled.
