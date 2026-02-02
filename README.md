@@ -134,6 +134,28 @@ The app has three build modes with different developer tools access:
 
 Build mode is detected automatically from the version string — no environment variables needed.
 
+### Code Signing (macOS)
+
+To build signed and notarized apps locally:
+
+1. Install the Developer ID certificate in your Keychain (get `.p12` from team admin)
+2. Copy `.env.example` to `.env.local` and fill in your values
+3. Source the env file and build:
+
+```bash
+source .env.local && pnpm dist:prod
+```
+
+Required environment variables (see `.env.example`):
+
+| Variable | Description |
+|----------|-------------|
+| `APPLE_ID` | Your Apple ID (must be added to XMTP team) |
+| `APPLE_APP_SPECIFIC_PASSWORD` | From [appleid.apple.com](https://appleid.apple.com) → App-Specific Passwords |
+| `APPLE_TEAM_ID` | Team ID (from Apple Developer portal or team admin) |
+
+CI builds use GitHub Secrets — no local setup needed for releases.
+
 ### Project Structure
 
 ```
