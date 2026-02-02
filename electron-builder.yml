@@ -31,3 +31,5 @@ linux:
     - deb
   maintainer: Bluesky Chat
   category: Network
+publish:
+  provider: github
