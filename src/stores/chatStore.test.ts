@@ -12,8 +12,12 @@ vi.mock('../services/xmtp', () => ({
     sendMessage: vi.fn(),
     createDm: vi.fn(),
     createGroup: vi.fn(),
-    getGroupName: vi.fn(),
-    streamMessages: vi.fn()
+    getGroupName: vi.fn().mockReturnValue(undefined),
+    getGroupDescription: vi.fn().mockReturnValue(undefined),
+    getGroupImageUrl: vi.fn().mockReturnValue(undefined),
+    isGroup: vi.fn().mockReturnValue(false),
+    streamMessages: vi.fn(),
+    stopStreaming: vi.fn()
   }
 }))
 

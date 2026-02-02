@@ -32,7 +32,8 @@ vi.mock('../services/identity', () => ({
     linkIdentity: vi.fn().mockResolvedValue(undefined),
     publishIdentityToATProto: vi.fn().mockResolvedValue(undefined),
     lookupInboxForDid: vi.fn().mockResolvedValue(null),
-    verifyIdentityBinding: vi.fn().mockResolvedValue(true)
+    verifyIdentityBinding: vi.fn().mockResolvedValue(true),
+    clearProfileCache: vi.fn()
   }
 }))
 
@@ -53,7 +54,39 @@ vi.mock('../services/signer', () => ({
     signMessage: vi.fn()
   }),
   getAddressFromPrivateKey: vi.fn().mockReturnValue('0xmockaddress'),
-  signDidWithInstallationKey: vi.fn().mockReturnValue('mock-signature-base64')
+  signDidWithInstallationKey: vi.fn().mockReturnValue('mock-signature-base64'),
+  hasExistingKey: vi.fn().mockReturnValue(false)
+}))
+
+// Mock the other stores that authStore depends on
+vi.mock('./profileStore', () => ({
+  useProfileStore: {
+    getState: vi.fn().mockReturnValue({
+      reset: vi.fn(),
+      loadAllFollowingDids: vi.fn()
+    })
+  }
+}))
+
+vi.mock('./chatStore', () => ({
+  useChatStore: {
+    getState: vi.fn().mockReturnValue({
+      reset: vi.fn()
+    })
+  }
+}))
+
+vi.mock('./uiStore', () => ({
+  useUIStore: {
+    getState: vi.fn().mockReturnValue({
+      reset: vi.fn()
+    })
+  }
+}))
+
+// Mock the clearXmtpStatusCache function
+vi.mock('../components/chat/NewConversation', () => ({
+  clearXmtpStatusCache: vi.fn()
 }))
 
 describe('AuthStore', () => {
@@ -109,7 +142,7 @@ describe('AuthStore', () => {
   })
 
   describe('loginWithBlueskyPassword', () => {
-    it('should login and connect XMTP', async () => {
+    it('should login to Bluesky and set profile', async () => {
       const mockProfile = {
         did: 'did:plc:test123',
         handle: 'test.bsky.social',
@@ -125,8 +158,8 @@ describe('AuthStore', () => {
       const state = useAuthStore.getState()
       expect(state.blueskyProfile).toEqual(mockProfile)
       expect(state.isBlueskyLoggedIn).toBe(true)
-      expect(state.isXMTPConnected).toBe(true)
-      expect(state.xmtpAddress).toBe('0xmockaddress')
+      // Note: XMTP connection is now handled separately by ConnectionProviderBridge
+      expect(state.isXMTPConnected).toBe(false)
     })
 
     it('should handle login errors', async () => {

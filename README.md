@@ -140,10 +140,10 @@ To build signed and notarized apps locally:
 
 1. Install the Developer ID certificate in your Keychain (get `.p12` from team admin)
 2. Copy `.env.example` to `.env.local` and fill in your values
-3. Source the env file and build:
+3. Build:
 
 ```bash
-source .env.local && pnpm dist:prod
+pnpm build && pnpm dist:prod
 ```
 
 Required environment variables (see `.env.example`):

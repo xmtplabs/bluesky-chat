@@ -30,6 +30,10 @@ vi.mock('@xmtp/browser-sdk', () => {
     IdentifierKind: {
       Ethereum: 0
     },
+    ConversationType: {
+      Dm: 0,
+      Group: 1
+    },
     __mockClient: mockClient // Export for test access
   }
 })
@@ -124,12 +128,14 @@ describe('XMTPService', () => {
 
   describe('isGroup', () => {
     it('should return true for group conversations', async () => {
-      const group = { id: 'group-1', name: 'Test Group', metadata: {} }
+      // ConversationType.Group = 1
+      const group = { id: 'group-1', name: 'Test Group', metadata: { conversationType: 1 } }
       expect(xmtpService.isGroup(group as any)).toBe(true)
     })
 
     it('should return false for DM conversations', async () => {
-      const dm = { id: 'dm-1', metadata: {} }
+      // ConversationType.Dm = 0
+      const dm = { id: 'dm-1', metadata: { conversationType: 0 } }
       expect(xmtpService.isGroup(dm as any)).toBe(false)
     })
   })
