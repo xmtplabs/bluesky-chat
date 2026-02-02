@@ -81,10 +81,6 @@ export interface ElectronAPI {
   setBadgeCount: (count: number) => void
   onOAuthCallback: (callback: (data: { code: string; state: string; iss?: string }) => void) => void
   removeOAuthCallback: () => void
-
-  // Dev tools panel toggle (from menu)
-  onToggleDevToolsPanel: (callback: () => void) => void
-  removeToggleDevToolsPanel: () => void
 }
 
 declare global {

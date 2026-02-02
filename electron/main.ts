@@ -276,11 +276,6 @@ function createApplicationMenu(): void {
           ? [
               { type: 'separator' as const },
               {
-                label: 'Toggle Dev Tools Panel',
-                accelerator: isMac ? 'Alt+Command+D' : 'Ctrl+Shift+D',
-                click: () => mainWindow?.webContents.send('toggle-dev-tools-panel')
-              },
-              {
                 label: 'Toggle Chrome DevTools',
                 accelerator: isMac ? 'Alt+Command+I' : 'Ctrl+Shift+I',
                 click: () => mainWindow?.webContents.toggleDevTools()

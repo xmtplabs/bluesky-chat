@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useAuthStore } from './stores/authStore'
 import { useUIStore } from './stores/uiStore'
-import { useSettingsStore } from './stores/settingsStore'
 import { BlueskyLogin } from './components/auth/BlueskyLogin'
 import { Sidebar } from './components/layout/Sidebar'
 import { ChatView } from './components/chat/ChatView'
@@ -16,7 +15,6 @@ export default function App() {
   const [isInitializing, setIsInitializing] = useState(true)
   const { isBlueskyLoggedIn, isXMTPConnected, initializeServices } = useAuthStore()
   const { viewingProfileDid, groupAdminModalGroupId, closeGroupAdmin } = useUIStore()
-  const { toggleDevToolsPanel } = useSettingsStore()
 
   useEffect(() => {
     const init = async () => {
@@ -31,16 +29,6 @@ export default function App() {
 
     init()
   }, [])
-
-  // Listen for dev tools panel toggle from menu
-  useEffect(() => {
-    if (window.electronAPI?.onToggleDevToolsPanel) {
-      window.electronAPI.onToggleDevToolsPanel(toggleDevToolsPanel)
-      return () => {
-        window.electronAPI?.removeToggleDevToolsPanel?.()
-      }
-    }
-  }, [toggleDevToolsPanel])
 
   if (isInitializing) {
     return (

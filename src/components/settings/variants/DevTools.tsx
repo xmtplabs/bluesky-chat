@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useSettings } from '../context/SettingsContext'
 import { useAuthStore, useOnboardingStore } from '../../../stores/authStore'
-import { useSettingsStore } from '../../../stores/settingsStore'
 import { blueskyService } from '../../../services/bluesky'
 import { identityService } from '../../../services/identity'
 import { clearPrivateKey } from '../../../services/signer'
@@ -20,7 +19,6 @@ export function DevTools() {
   const { actions, meta } = useSettings()
   const { blueskyProfile, xmtpInboxId, identityMismatch, signatureInvalid, publishedInboxId } = meta
 
-  const { devToolsPanelOpen } = useSettingsStore()
   const [buildMode, setBuildMode] = useState<BuildMode | null>(null)
   const [showDevTools, setShowDevTools] = useState(false)
   const [isWorking, setIsWorking] = useState(false)
@@ -40,17 +38,10 @@ export function DevTools() {
     })
   }, [])
 
-  // Visibility rules:
-  // - Always visible in development mode
-  // - Visible in beta mode only when toggled on via menu
-  // - Never visible in production
-  // - Don't render until we know the build mode
-  if (buildMode === null) return null
-  const isVisible = buildMode === 'development' || (buildMode === 'beta' && devToolsPanelOpen)
-  if (!isVisible) return null
-
   // Fetch current ATProto record on mount when expanded
+  // Note: Must be called before early returns to maintain consistent hook order
   useEffect(() => {
+    if (buildMode === null || buildMode === 'production') return
     if (!blueskyProfile?.did || !showDevTools) return
 
     identityService.lookupInboxForDid(blueskyProfile.did)
@@ -58,7 +49,16 @@ export function DevTools() {
         setAtprotoRecord(record ? { inboxId: record.inboxId, signature: record.verificationSignature } : null)
       })
       .catch(() => setAtprotoRecord(null))
-  }, [blueskyProfile?.did, showDevTools])
+  }, [blueskyProfile?.did, showDevTools, buildMode])
+
+  // Visibility rules:
+  // - Always visible in development mode
+  // - Always visible in beta mode
+  // - Never visible in production
+  // - Don't render until we know the build mode
+  if (buildMode === null) return null
+  const isVisible = buildMode === 'development' || buildMode === 'beta'
+  if (!isVisible) return null
 
   const refreshAtprotoRecord = async () => {
     if (!blueskyProfile?.did) return

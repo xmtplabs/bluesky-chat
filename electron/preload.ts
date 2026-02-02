@@ -29,15 +29,6 @@ const electronAPI: ElectronAPI = {
 
   removeOAuthCallback: () => {
     ipcRenderer.removeAllListeners('oauth-callback')
-  },
-
-  // Dev tools panel toggle (from menu)
-  onToggleDevToolsPanel: (callback: () => void) => {
-    ipcRenderer.on('toggle-dev-tools-panel', () => callback())
-  },
-
-  removeToggleDevToolsPanel: () => {
-    ipcRenderer.removeAllListeners('toggle-dev-tools-panel')
   }
 }
 
