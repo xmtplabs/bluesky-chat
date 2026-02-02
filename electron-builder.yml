@@ -1,0 +1,33 @@
+appId: com.bluesky.chat
+productName: Bluesky Chat
+copyright: Copyright © 2025
+directories:
+  output: dist
+  buildResources: build
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!electron/*'
+  - '!node_modules/**/!(*.node)'
+  - '!{.eslintrc.cjs,electron.vite.config.ts,tailwind.config.js,postcss.config.js,*.md}'
+mac:
+  category: public.app-category.social-networking
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+linux:
+  target:
+    - AppImage
+    - deb
+  maintainer: Bluesky Chat
+  category: Network

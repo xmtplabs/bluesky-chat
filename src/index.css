@@ -1,0 +1,347 @@
+@import 'tailwindcss';
+
+@source "../index.html";
+@source "./**/*.{js,ts,jsx,tsx}";
+
+@theme {
+  /* ===========================================
+     BLUESKY CHAT DESIGN SYSTEM
+     Primary Identity: Bluesky
+     Security Layer: XMTP
+     =========================================== */
+
+  /* ---------------------------------------------
+     BLUESKY BRAND COLORS
+     Core palette derived from Bluesky's visual identity
+     --------------------------------------------- */
+  --color-bsky-blue: #0085FF;
+  --color-bsky-blue-light: #1A91FF;
+  --color-bsky-blue-dark: #0066CC;
+  --color-bsky-blue-darker: #004C99;
+
+  /* Extended blue palette for UI states */
+  --color-bsky-50: #E6F4FF;
+  --color-bsky-100: #BAE0FF;
+  --color-bsky-200: #8ECBFF;
+  --color-bsky-300: #5CB5FF;
+  --color-bsky-400: #2A9FFF;
+  --color-bsky-500: #0085FF;
+  --color-bsky-600: #0066CC;
+  --color-bsky-700: #004C99;
+  --color-bsky-800: #003366;
+  --color-bsky-900: #001A33;
+
+  /* ---------------------------------------------
+     SURFACE HIERARCHY
+     Background colors for layered interfaces
+     --------------------------------------------- */
+  --color-surface: #FFFFFF;
+  --color-surface-elevated: #FFFFFF;
+  --color-surface-secondary: #F7F9FA;
+  --color-surface-tertiary: #EEF1F3;
+  --color-surface-hover: #F0F3F5;
+  --color-surface-active: #E8EBEE;
+  --color-surface-selected: #E6F4FF;
+
+  /* ---------------------------------------------
+     TEXT HIERARCHY
+     Typography colors for clear visual hierarchy
+     --------------------------------------------- */
+  --color-text-primary: #0F1419;
+     --color-text-secondary: #536471;
+  --color-text-tertiary: #8899A6;
+  --color-text-disabled: #B0BEC5;
+  --color-text-inverse: #FFFFFF;
+  --color-text-link: #0085FF;
+
+  /* ---------------------------------------------
+     BORDER COLORS
+     Subtle borders for separation and structure
+     --------------------------------------------- */
+  --color-border: #E1E8ED;
+  --color-border-light: #EEF1F3;
+  --color-border-focus: #0085FF;
+  --color-border-error: #F4212E;
+
+  /* ---------------------------------------------
+     SEMANTIC COLORS
+     Status and feedback colors
+     --------------------------------------------- */
+  --color-success: #00BA7C;
+  --color-success-light: #E6F9F3;
+  --color-error: #F4212E;
+  --color-error-light: #FEE9EA;
+  --color-warning: #FFAD1F;
+  --color-warning-light: #FFF8E6;
+  --color-info: #0085FF;
+  --color-info-light: #E6F4FF;
+
+  /* ---------------------------------------------
+     MESSAGE COLORS
+     Chat bubble and message styling
+     --------------------------------------------- */
+  --color-message-own: #0085FF;
+  --color-message-own-text: #FFFFFF;
+  --color-message-peer: #EEF1F3;
+  --color-message-peer-text: #0F1419;
+  --color-message-system: #F7F9FA;
+  --color-message-system-text: #536471;
+
+  /* ---------------------------------------------
+     AVATAR COLORS
+     Fallback colors for user avatars
+     --------------------------------------------- */
+  --color-avatar-dm: #0085FF;
+  --color-avatar-group: #7C3AED;
+
+  /* ---------------------------------------------
+     XMTP SECURITY COLORS
+     For security indicators and badges
+     --------------------------------------------- */
+  --color-xmtp-secure: #00BA7C;
+  --color-xmtp-secure-bg: #E6F9F3;
+
+  /* ---------------------------------------------
+     SPACING SCALE
+     4px base grid system
+     --------------------------------------------- */
+  --spacing-0: 0px;
+  --spacing-0-5: 2px;
+  --spacing-1: 4px;
+  --spacing-1-5: 6px;
+  --spacing-2: 8px;
+  --spacing-2-5: 10px;
+  --spacing-3: 12px;
+  --spacing-3-5: 14px;
+  --spacing-4: 16px;
+  --spacing-5: 20px;
+  --spacing-6: 24px;
+  --spacing-7: 28px;
+  --spacing-8: 32px;
+  --spacing-9: 36px;
+  --spacing-10: 40px;
+  --spacing-11: 44px;
+  --spacing-12: 48px;
+  --spacing-14: 56px;
+  --spacing-16: 64px;
+  --spacing-20: 80px;
+
+  /* ---------------------------------------------
+     TYPOGRAPHY SCALE
+     Consistent type sizes
+     --------------------------------------------- */
+  --text-xs: 11px;
+  --text-sm: 13px;
+  --text-base: 15px;
+  --text-lg: 17px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+  --text-3xl: 30px;
+
+  /* Line heights */
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.625;
+
+  /* Font weights */
+  --font-normal: 400;
+  --font-medium: 500;
+  --font-semibold: 600;
+  --font-bold: 700;
+
+  /* ---------------------------------------------
+     BORDER RADIUS SCALE
+     Consistent corner rounding
+     --------------------------------------------- */
+  --radius-none: 0px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+  --radius-3xl: 24px;
+  --radius-full: 9999px;
+
+  /* ---------------------------------------------
+     SHADOW SCALE
+     Elevation and depth
+     --------------------------------------------- */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.12);
+  --shadow-xl: 0 8px 32px rgba(0, 0, 0, 0.16);
+  --shadow-modal: 0 16px 48px rgba(0, 0, 0, 0.2);
+
+  /* ---------------------------------------------
+     TRANSITIONS
+     Smooth animation timing
+     --------------------------------------------- */
+  --transition-fast: 100ms;
+  --transition-normal: 200ms;
+  --transition-slow: 300ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ===========================================
+   GLOBAL STYLES
+   =========================================== */
+
+html,
+body,
+#root {
+  height: 100%;
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    Oxygen,
+    Ubuntu,
+    sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--color-text-primary);
+  background-color: var(--color-surface);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ---------------------------------------------
+   SCROLLBAR STYLING
+   Clean, minimal scrollbars
+   --------------------------------------------- */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: var(--radius-full);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-tertiary);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+/* Firefox scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+
+/* ---------------------------------------------
+   TEXT SELECTION
+   Bluesky brand color
+   --------------------------------------------- */
+::selection {
+  background: rgba(0, 133, 255, 0.2);
+  color: var(--color-text-primary);
+}
+
+/* ---------------------------------------------
+   MACOS WINDOW CONTROLS
+   Draggable title bar area
+   --------------------------------------------- */
+.drag-region {
+  -webkit-app-region: drag;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* ---------------------------------------------
+   FOCUS STYLES
+   Accessible keyboard focus indicators
+   --------------------------------------------- */
+:focus-visible {
+  outline: 2px solid var(--color-bsky-500);
+  outline-offset: 2px;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--color-bsky-500);
+  outline-offset: 2px;
+}
+
+/* Remove default focus outline when using mouse */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* ---------------------------------------------
+   PLACEHOLDER STYLING
+   Consistent placeholder text
+   --------------------------------------------- */
+::placeholder {
+  color: var(--color-text-tertiary);
+  opacity: 1;
+}
+
+/* ---------------------------------------------
+   ANIMATION KEYFRAMES
+   Only animate when user hasn't requested reduced motion
+   --------------------------------------------- */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes slideUp {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+}
+
+/* Reduced motion: disable animations */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ---------------------------------------------
+   SCROLLBAR HIDE UTILITY
+   Hide scrollbars while maintaining scroll
+   --------------------------------------------- */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
