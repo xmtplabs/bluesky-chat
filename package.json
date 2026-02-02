@@ -9,7 +9,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
-    "postinstall": "electron-builder install-app-deps",
+    "postinstall": "electron-builder install-app-deps && node node_modules/electron/install.js",
     "pack": "electron-builder --dir",
     "dist": "dotenv -e .env.local -- electron-builder",
     "dist:beta": "npm version prerelease --preid=beta --no-git-tag-version && dotenv -e .env.local -- electron-builder",
