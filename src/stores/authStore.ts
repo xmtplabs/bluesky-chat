@@ -140,7 +140,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // which shows RestoreOpportunity for new users
     } catch (error) {
       console.error('Bluesky login failed:', error)
-      set({ error: error instanceof Error ? error.message : 'Login failed' })
+      // User cancelled OAuth - silently reset to initial state
+      const message = error instanceof Error ? error.message : 'Login failed'
+      if (message.includes('cancelled') || message.includes('canceled')) {
+        set({ error: null })
+        return
+      }
+      set({ error: message })
       throw error
     } finally {
       set({ isLoading: false })
