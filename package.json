@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "description": "Electron desktop chat app with Bluesky identity and XMTP encryption",
+  "author": "XMTP Labs <info@xmtp.org>",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
