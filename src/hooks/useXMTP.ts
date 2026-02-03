@@ -25,7 +25,8 @@ export function useXMTP() {
     createDm,
     createGroup,
     startMessageStream,
-    stopMessageStream
+    startConversationStream,
+    stopStreaming
   } = useChatStore()
 
   // On mount, check if XMTP client is still connected (survives hot reload)
@@ -45,17 +46,19 @@ export function useXMTP() {
     }
   }, [])
 
-  // Start message streaming when connected
+  // Start streaming when connected
   useEffect(() => {
     if (isXMTPConnected) {
       loadConversations()
       startMessageStream()
+      startConversationStream()
     }
 
     return () => {
-      stopMessageStream()
+      stopStreaming()
     }
-  }, [isXMTPConnected])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isXMTPConnected]) // Zustand store functions are stable references
 
   const canMessage = useCallback(
     async (addresses: string[]): Promise<Map<string, boolean>> => {

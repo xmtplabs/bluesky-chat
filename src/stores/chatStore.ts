@@ -5,12 +5,15 @@ import { xmtpService } from '../services/xmtp'
 import { identityService } from '../services/identity'
 import { blueskyService } from '../services/bluesky'
 
+// Module-level timeout for conversation stream debouncing (cleared on stop)
+let conversationReloadTimeout: ReturnType<typeof setTimeout> | null = null
+
 /**
  * Get a display name for a sender inbox ID.
  * Tries to resolve from identity cache, falls back to truncated ID.
  */
 function getSenderName(senderInboxId: string): string {
-  // Try to get the DID from the identity cache
+  // Try to get the DID from identity service
   const did = identityService.getDidFromInboxId(senderInboxId)
   if (did) {
     // Try to get cached profile
@@ -191,7 +194,8 @@ interface ChatState {
   createDm: (peerAddress: string, peerProfile?: BlueskyProfile) => Promise<string>
   createGroup: (memberAddresses: string[], name?: string) => Promise<string>
   startMessageStream: () => Promise<void>
-  stopMessageStream: () => void
+  startConversationStream: () => Promise<void>
+  stopStreaming: () => Promise<void>
   markAsRead: (conversationId: string) => void
   acceptRequest: (conversationId: string) => void
   clearError: () => void
@@ -430,6 +434,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
     try {
       const conversation = await xmtpService.createDm(peerInboxId)
 
+      // Cache the peer's profile and register the inboxId -> DID mapping
+      // This ensures we can resolve their profile when loading conversations later
+      if (peerProfile) {
+        identityService.cacheProfile(peerProfile)
+        // Register the reverse mapping for lookups
+        identityService.registerIndexedMapping(peerInboxId, peerProfile.did)
+      }
+
       const newConv: ChatConversation = {
         id: conversation.id,
         topic: conversation.id,
@@ -596,8 +608,30 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  stopMessageStream: () => {
-    xmtpService.stopStreaming()
+  startConversationStream: async () => {
+    try {
+      await xmtpService.streamConversations((conversation) => {
+        console.log('New conversation received via stream:', conversation.id)
+
+        // Debounce: wait 100ms before reloading in case more conversations arrive
+        if (conversationReloadTimeout) clearTimeout(conversationReloadTimeout)
+        conversationReloadTimeout = setTimeout(() => {
+          conversationReloadTimeout = null
+          get().loadConversations()
+        }, 100)
+      })
+    } catch (error) {
+      console.error('Failed to start conversation stream:', error)
+    }
+  },
+
+  stopStreaming: async () => {
+    // Clear any pending conversation reload
+    if (conversationReloadTimeout) {
+      clearTimeout(conversationReloadTimeout)
+      conversationReloadTimeout = null
+    }
+    await xmtpService.stopStreaming()
   },
 
   markAsRead: (conversationId: string) => {

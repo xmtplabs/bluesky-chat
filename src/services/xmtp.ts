@@ -6,8 +6,10 @@ import {
   type GroupMember,
   type Group,
   type Dm,
+  type AsyncStreamProxy,
   IdentifierKind,
-  ConversationType
+  ConversationType,
+  ConsentState
 } from '@xmtp/browser-sdk'
 
 // Use production network for built distributions, dev for development
@@ -20,10 +22,17 @@ type XMTPConversation = Group | Dm
 export type MessageCallback = (message: DecodedMessage) => void
 export type ConversationCallback = (conversation: XMTPConversation) => void
 
+// Reconnection delay when a stream ends unexpectedly
+const STREAM_RECONNECT_DELAY_MS = 5000
+
 class XMTPService {
   private client: Client | null = null
-  private messageStreamActive = false
-  private conversationStreamActive = false
+  private messageStream: AsyncStreamProxy<DecodedMessage> | null = null
+  private conversationStream: AsyncStreamProxy<XMTPConversation> | null = null
+  private streamingEnabled = false
+  private messageCallback: MessageCallback | null = null
+  private conversationCallback: ConversationCallback | null = null
+  private reconnectTimeouts: Map<'message' | 'conversation', ReturnType<typeof setTimeout>> = new Map()
 
   async init(signer: Signer): Promise<Client> {
     console.log('XMTPService.init: Creating client with signer...')
@@ -62,7 +71,12 @@ class XMTPService {
   async getConversations(): Promise<XMTPConversation[]> {
     if (!this.client) throw new Error('XMTP client not initialized')
 
-    await this.client.conversations.sync()
+    // Use syncAll() instead of sync() to ensure we get:
+    // - New welcomes (conversations created by others)
+    // - Conversations synced from other installations of the same inbox
+    // - Preference updates
+    // Pass empty array to sync all consent states (allowed, unknown, denied)
+    await this.client.conversations.syncAll([])
     const conversations = await this.client.conversations.list()
     return conversations
   }
@@ -115,7 +129,13 @@ class XMTPService {
   }
 
   async getMessages(conversation: XMTPConversation): Promise<DecodedMessage[]> {
-    await conversation.sync()
+    // Try to sync, but don't fail if sync has issues (e.g., forward secrecy errors)
+    // Messages that were already received via stream will still be in the local DB
+    try {
+      await conversation.sync()
+    } catch (syncError) {
+      console.warn('Conversation sync had issues, loading existing messages:', syncError)
+    }
     const messages = await conversation.messages()
     return messages
   }
@@ -126,41 +146,156 @@ class XMTPService {
     return messageId
   }
 
+  /**
+   * Start streaming messages. Automatically reconnects if the stream ends unexpectedly.
+   */
   async streamMessages(callback: MessageCallback): Promise<void> {
     if (!this.client) throw new Error('XMTP client not initialized')
 
-    this.messageStreamActive = true
-    const stream = await this.client.conversations.streamAllMessages()
+    // Stop existing stream if any
+    await this.stopStream('message')
 
-    try {
-      for await (const message of stream) {
-        if (!this.messageStreamActive) break
-        callback(message)
-      }
-    } catch (error) {
-      console.error('Message stream error:', error)
-    }
+    this.messageCallback = callback
+    this.streamingEnabled = true
+    await this.runMessageStream()
   }
 
+  /**
+   * Start streaming conversations (welcomes). Automatically reconnects if the stream ends unexpectedly.
+   */
   async streamConversations(callback: ConversationCallback): Promise<void> {
     if (!this.client) throw new Error('XMTP client not initialized')
 
-    this.conversationStreamActive = true
-    const stream = await this.client.conversations.stream()
+    // Stop existing stream if any
+    await this.stopStream('conversation')
 
-    try {
-      for await (const conversation of stream) {
-        if (!this.conversationStreamActive) break
-        callback(conversation)
-      }
-    } catch (error) {
-      console.error('Conversation stream error:', error)
+    this.conversationCallback = callback
+    this.streamingEnabled = true
+    await this.runConversationStream()
+  }
+
+  /**
+   * Stop all streams and disable auto-reconnection.
+   */
+  async stopStreaming(): Promise<void> {
+    // Disable streaming first to prevent onEnd callbacks from scheduling reconnects
+    this.streamingEnabled = false
+    this.messageCallback = null
+    this.conversationCallback = null
+
+    // Clear any pending reconnect timeouts
+    this.reconnectTimeouts.forEach(clearTimeout)
+    this.reconnectTimeouts.clear()
+
+    await Promise.all([this.stopStream('message'), this.stopStream('conversation')])
+  }
+
+  /**
+   * Internal: Stop a specific stream.
+   */
+  private async stopStream(type: 'message' | 'conversation'): Promise<void> {
+    const stream = type === 'message' ? this.messageStream : this.conversationStream
+
+    if (stream && !stream.isDone) {
+      await stream.end()
+    }
+
+    if (type === 'message') {
+      this.messageStream = null
+    } else {
+      this.conversationStream = null
     }
   }
 
-  stopStreaming(): void {
-    this.messageStreamActive = false
-    this.conversationStreamActive = false
+  /**
+   * Internal: Run the message stream with error handling and reconnection.
+   */
+  private async runMessageStream(): Promise<void> {
+    if (!this.client || !this.streamingEnabled || !this.messageCallback) return
+
+    const callback = this.messageCallback
+
+    try {
+      // Stream messages for allowed and unknown consent states
+      // This ensures we see new message requests while filtering out denied/spam
+      const stream = await this.client.conversations.streamAllMessages({
+        consentStates: [ConsentState.Allowed, ConsentState.Unknown],
+        onError: (error) => console.error('Message stream error:', error),
+        onEnd: () => {
+          console.log('Message stream ended')
+          this.scheduleReconnect('message')
+        }
+      })
+
+      this.messageStream = stream
+
+      for await (const message of stream) {
+        if (stream.isDone || !this.streamingEnabled) break
+        callback(message)
+      }
+    } catch (error) {
+      console.error('Message stream iteration error:', error)
+      this.scheduleReconnect('message')
+    }
+  }
+
+  /**
+   * Internal: Run the conversation stream with error handling and reconnection.
+   */
+  private async runConversationStream(): Promise<void> {
+    if (!this.client || !this.streamingEnabled || !this.conversationCallback) return
+
+    const callback = this.conversationCallback
+
+    try {
+      const stream = await this.client.conversations.stream({
+        onError: (error) => console.error('Conversation stream error:', error),
+        onEnd: () => {
+          console.log('Conversation stream ended')
+          this.scheduleReconnect('conversation')
+        }
+      })
+
+      this.conversationStream = stream
+
+      for await (const conversation of stream) {
+        if (stream.isDone || !this.streamingEnabled) break
+        callback(conversation)
+      }
+    } catch (error) {
+      console.error('Conversation stream iteration error:', error)
+      this.scheduleReconnect('conversation')
+    }
+  }
+
+  /**
+   * Internal: Schedule a stream reconnection after a delay.
+   */
+  private scheduleReconnect(type: 'message' | 'conversation'): void {
+    if (!this.streamingEnabled || !this.client) return
+
+    const callback = type === 'message' ? this.messageCallback : this.conversationCallback
+    if (!callback) return
+
+    // Clear any existing reconnect timeout for this stream type
+    const existingTimeout = this.reconnectTimeouts.get(type)
+    if (existingTimeout) clearTimeout(existingTimeout)
+
+    console.log(`${type} stream ended unexpectedly, reconnecting in ${STREAM_RECONNECT_DELAY_MS / 1000}s...`)
+
+    const timeoutId = setTimeout(() => {
+      this.reconnectTimeouts.delete(type)
+
+      if (!this.streamingEnabled || !this.client) return
+
+      if (type === 'message' && this.messageCallback) {
+        this.runMessageStream()
+      } else if (type === 'conversation' && this.conversationCallback) {
+        this.runConversationStream()
+      }
+    }, STREAM_RECONNECT_DELAY_MS)
+
+    this.reconnectTimeouts.set(type, timeoutId)
   }
 
   async canMessage(addresses: string[]): Promise<Map<string, boolean>> {
@@ -269,7 +404,7 @@ class XMTPService {
   }
 
   async disconnect(): Promise<void> {
-    this.stopStreaming()
+    await this.stopStreaming()
     if (this.client) {
       this.client.close()
     }
