@@ -15,6 +15,7 @@
     "dist:beta": "npm version prerelease --preid=beta --no-git-tag-version && dotenv -e .env.local -- electron-builder",
     "dist:prod": "dotenv -e .env.local -- electron-builder",
     "release:beta": "npm version prerelease --preid=beta && git push --follow-tags",
+    "release:beta:patch": "npm version prepatch --preid=beta && git push --follow-tags",
     "release:beta:minor": "npm version preminor --preid=beta && git push --follow-tags",
     "release:beta:major": "npm version premajor --preid=beta && git push --follow-tags",
     "release": "npm version patch && git push --follow-tags",
