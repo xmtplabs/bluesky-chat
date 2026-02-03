@@ -58,12 +58,16 @@ jobs:
             -A -t cert -f pkcs12 \
             -k "$KEYCHAIN_PATH"
 
-          # Allow codesign to access the key without UI prompt
+          # Allow codesign to access the key without UI prompt (may fail, non-fatal)
           security set-key-partition-list -S apple-tool:,apple: \
-            -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+            -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" || echo "Warning: set-key-partition-list failed (continuing anyway)"
 
           # Add keychain to search list
           security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain
+
+          # List identities to verify import worked
+          echo "Available signing identities:"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH" || echo "No identities found in keychain"
 
           # Export for electron-builder (CSC_LINK must be file path)
           echo "CSC_LINK=$CERT_PATH" >> "$GITHUB_ENV"
