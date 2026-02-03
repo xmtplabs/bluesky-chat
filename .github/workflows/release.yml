@@ -27,87 +27,12 @@ jobs:
 
       - run: pnpm build
 
-      - name: Setup macOS code signing
-        if: runner.os == 'macOS'
-        run: |
-          set -euo pipefail
-
-          # Use job-specific temp directory (not shared /tmp)
-          CERT_PATH="$RUNNER_TEMP/certificate.p12"
-          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
-          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
-
-          echo "Decoding certificate..."
-          umask 077
-          echo "$CSC_LINK_BASE64" | base64 --decode > "$CERT_PATH"
-
-          if [ ! -s "$CERT_PATH" ]; then
-            echo "::error::Failed to decode certificate"
-            exit 1
-          fi
-          echo "Certificate decoded: $(wc -c < "$CERT_PATH") bytes"
-
-          echo "Creating keychain..."
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-
-          echo "Importing certificate to keychain..."
-          security import "$CERT_PATH" \
-            -P "$CSC_KEY_PASSWORD" \
-            -A -t cert -f pkcs12 \
-            -k "$KEYCHAIN_PATH"
-
-          # Allow codesign to access the key without UI prompt (may fail, non-fatal)
-          security set-key-partition-list -S apple-tool:,apple: \
-            -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" || echo "Warning: set-key-partition-list failed (continuing anyway)"
-
-          # Add keychain to search list
-          security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain
-
-          # List identities to verify import worked
-          echo "Available signing identities:"
-          security find-identity -v -p codesigning "$KEYCHAIN_PATH" || echo "No identities found in keychain"
-
-          # Export for electron-builder (CSC_LINK must be file path)
-          echo "CSC_LINK=$CERT_PATH" >> "$GITHUB_ENV"
-          echo "SIGNING_KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
-          echo "SIGNING_CERT_PATH=$CERT_PATH" >> "$GITHUB_ENV"
-          echo "macOS code signing setup complete"
-        env:
-          CSC_LINK_BASE64: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-
-      - name: Debug secrets (macOS only)
-        if: runner.os == 'macOS'
-        run: |
-          echo "CSC_LINK length: ${#CSC_LINK_BASE64}"
-          echo "CSC_KEY_PASSWORD set: $([[ -n "$CSC_KEY_PASSWORD" ]] && echo 'yes' || echo 'no')"
-          echo "APPLE_ID set: $([[ -n "$APPLE_ID" ]] && echo 'yes' || echo 'no')"
-          echo "APPLE_TEAM_ID set: $([[ -n "$APPLE_TEAM_ID" ]] && echo 'yes' || echo 'no')"
-        env:
-          CSC_LINK_BASE64: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-
       - name: Build and publish
         run: pnpm dist
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # CSC_LINK not needed - cert is in keychain
+          CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          # macOS notarization
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-
-      - name: Cleanup macOS code signing
-        if: runner.os == 'macOS' && always()
-        run: |
-          if [ -n "${SIGNING_CERT_PATH:-}" ] && [ -f "$SIGNING_CERT_PATH" ]; then
-            rm -f "$SIGNING_CERT_PATH"
-          fi
-          if [ -n "${SIGNING_KEYCHAIN_PATH:-}" ] && [ -f "$SIGNING_KEYCHAIN_PATH" ]; then
-            security delete-keychain "$SIGNING_KEYCHAIN_PATH" 2>/dev/null || true
-          fi
