@@ -39,7 +39,7 @@ jobs:
           # Generate random keychain password
           KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
 
-          # Decode certificate with restrictive permissions
+          echo "Decoding certificate..."
           umask 077
           echo "$CSC_LINK_BASE64" | base64 --decode > "$CERT_PATH"
 
@@ -48,32 +48,39 @@ jobs:
             echo "::error::Failed to decode certificate"
             exit 1
           fi
+          echo "Certificate decoded: $(wc -c < "$CERT_PATH") bytes"
 
-          # Create and configure keychain
+          echo "Creating keychain..."
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          echo "Keychain created and unlocked"
 
-          # Import certificate (stderr redirected to prevent leaking details)
+          echo "Importing certificate..."
           security import "$CERT_PATH" \
             -P "$CSC_KEY_PASSWORD" \
             -A -t cert -f pkcs12 \
-            -k "$KEYCHAIN_PATH" 2>/dev/null || {
+            -k "$KEYCHAIN_PATH" || {
               echo "::error::Failed to import certificate to keychain"
               rm -f "$CERT_PATH"
               exit 1
             }
+          echo "Certificate imported"
 
-          # Configure keychain for codesign access
+          # Configure keychain for codesign access (non-fatal, may not be needed)
+          echo "Configuring keychain partition list..."
           security set-key-partition-list -S apple-tool:,apple: \
-            -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" 2>/dev/null
+            -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" 2>/dev/null || echo "Partition list config skipped (non-fatal)"
+
           security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain
+          echo "Keychain added to search list"
 
           # Delete certificate file (no longer needed after import)
           rm -f "$CERT_PATH"
 
           # Export keychain path for cleanup step
           echo "SIGNING_KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+          echo "macOS code signing setup complete"
         env:
           CSC_LINK_BASE64: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
