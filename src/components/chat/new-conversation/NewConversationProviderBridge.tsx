@@ -8,6 +8,8 @@ import {
 } from './context/NewConversationContext'
 import { useBluesky } from '../../../hooks/useBluesky'
 import { useXMTP } from '../../../hooks/useXMTP'
+import { useChatStore } from '../../../stores/chatStore'
+import { useAuthStore } from '../../../stores/authStore'
 import { identityService } from '../../../services/identity'
 import type { BlueskyProfile } from '../../../types'
 
@@ -51,6 +53,8 @@ export function NewConversationProviderBridge({ children, onClose }: NewConversa
   } = useBluesky()
 
   const { createDm, createGroup } = useXMTP()
+  const { conversations, selectConversation } = useChatStore()
+  const { blueskyProfile: currentUser } = useAuthStore()
 
   // Ref to track which DIDs are currently being checked (prevents race conditions)
   const checkingRef = useRef<Set<string>>(new Set())
@@ -154,6 +158,17 @@ export function NewConversationProviderBridge({ children, onClose }: NewConversa
     if (!isAlreadySelected && !canMessage) return
 
     if (mode === 'dm') {
+      // Check if we already have a DM with this user
+      const existingConv = conversations.find(
+        (c) => !c.isGroup && c.peerProfile?.did === user.did
+      )
+      if (existingConv) {
+        // Navigate to existing conversation instead of starting new one
+        selectConversation(existingConv.id)
+        onClose()
+        return
+      }
+
       if (isAlreadySelected) {
         setSelectedUsers([])
       } else {
@@ -172,7 +187,7 @@ export function NewConversationProviderBridge({ children, onClose }: NewConversa
       })
     }
     setError(null)
-  }, [mode, selectedUsers, xmtpStatus])
+  }, [mode, selectedUsers, xmtpStatus, conversations, selectConversation, onClose])
 
   const removeUser = useCallback((did: string) => {
     setSelectedUsers((prev) => prev.filter((u) => u.did !== did))
@@ -246,7 +261,9 @@ export function NewConversationProviderBridge({ children, onClose }: NewConversa
     })
   }, [currentList, xmtpStatus])
 
-  const displayList = searchQuery.trim() ? searchResults : sortedList
+  // Filter out the current user from the list (can't message yourself)
+  const baseList = searchQuery.trim() ? searchResults : sortedList
+  const displayList = currentUser ? baseList.filter((u) => u.did !== currentUser.did) : baseList
   const canCreate = selectedUsers.length >= 1
 
   const contextValue: NewConversationContextValue = useMemo(() => ({
