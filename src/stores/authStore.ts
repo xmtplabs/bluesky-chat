@@ -48,6 +48,7 @@ interface AuthState {
   connectXMTP: () => Promise<void>
   updateBlueskyProfile: (updates: { displayName?: string; description?: string; avatar?: Blob }) => Promise<void>
   republishIdentity: () => Promise<void>
+  revokeOtherInstallations: () => Promise<void>
   checkIdentityStatus: () => Promise<void>
   dismissMismatch: () => void
   logout: () => Promise<void>
@@ -381,6 +382,56 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       console.error('Failed to republish identity:', error)
       throw error
     }
+  },
+
+  revokeOtherInstallations: async () => {
+    const { blueskyProfile, xmtpInboxId } = get()
+
+    if (!blueskyProfile || !xmtpInboxId) {
+      throw new Error('Profile and XMTP connection required')
+    }
+
+    // Re-sign the ATProto record with current installation BEFORE revoking others.
+    // This ensures the signature remains valid after revocation.
+    // Without this, if another installation signed the record, revoking it would
+    // orphan the signature and cause verification to fail.
+    if (blueskyService.hasRepoWriteAccess()) {
+      try {
+        const agent = blueskyService.getAgent()
+        const client = xmtpService.getClient()
+
+        if (client) {
+          console.log('Re-signing ATProto record before revoking other installations...')
+          const signature = await signDidWithInstallationKey(client, blueskyProfile.did)
+          await identityService.publishIdentityToATProto(agent, xmtpInboxId, signature)
+
+          // Update local cache
+          await identityService.linkIdentity(
+            blueskyProfile.did,
+            blueskyProfile.handle,
+            xmtpInboxId,
+            signature
+          )
+
+          // Clear any mismatch/invalid state
+          set({
+            identityMismatch: false,
+            signatureInvalid: false,
+            publishedInboxId: xmtpInboxId,
+            mismatchDismissed: false
+          })
+
+          console.log('ATProto record re-signed with current installation')
+        }
+      } catch (error) {
+        // Log but don't fail - user can fix signature later via banner
+        console.warn('Could not re-sign ATProto record:', error)
+      }
+    }
+
+    // Now safe to revoke other installations
+    await xmtpService.revokeAllOtherInstallations()
+    console.log('Other installations revoked')
   },
 
   checkIdentityStatus: async () => {

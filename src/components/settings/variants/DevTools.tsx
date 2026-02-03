@@ -28,7 +28,7 @@ export function DevTools() {
   const [currentInstallationId, setCurrentInstallationId] = useState<string | null>(null)
 
   const { getPhase, setPhase: setOnboardingPhase } = useOnboardingStore()
-  const { checkIdentityStatus } = useAuthStore()
+  const { checkIdentityStatus, revokeOtherInstallations: revokeOtherInstallationsWithResign } = useAuthStore()
 
   const hasWriteAccess = blueskyService.hasRepoWriteAccess()
   const onboardingPhase = blueskyProfile?.did ? getPhase(blueskyProfile.did) : { phase: 'fresh' as const }
@@ -101,7 +101,9 @@ export function DevTools() {
 
     setIsWorking(true)
     try {
-      await xmtpService.revokeAllOtherInstallations()
+      // Use the store method which re-signs the ATProto record before revoking
+      // This prevents orphaning the signature if another installation signed it
+      await revokeOtherInstallationsWithResign()
       await refreshInstallationCount()
       actions.setSuccess('Other installations revoked')
     } catch (err) {
