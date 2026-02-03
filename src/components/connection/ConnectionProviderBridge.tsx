@@ -5,6 +5,7 @@ import { Client, IdentifierKind, type Signer } from '@xmtp/browser-sdk'
 import { ConnectionProvider, type ConnectionContextValue, type ConnectionPhase } from './context/ConnectionContext'
 import { useAuthStore, useOnboardingStore } from '../../stores/authStore'
 import { hasExistingKey, importPrivateKey, exportPrivateKey } from '../../services/signer'
+import { verboseLog, verboseWarn, verboseError } from '../../services/xmtp'
 
 // Match the environment used in xmtp.ts
 const XMTP_ENV = import.meta.env.MODE === 'production' ? 'production' : 'dev'
@@ -35,13 +36,18 @@ export function ConnectionProviderBridge({ children }: ConnectionProviderBridgeP
     let cancelled = false
 
     const checkKey = async () => {
+      verboseLog('🔍 CONNECTION: Checking for existing key...')
+      console.log('   DID:', blueskyProfile.did)
+
       const exists = await hasExistingKey(blueskyProfile.did)
       if (cancelled) return
 
       setKeyExists(exists)
+      verboseLog('🔍 CONNECTION: Key exists:', exists)
 
       if (exists) {
         // Returning user - go straight to connecting
+        verboseLog('🔄 CONNECTION: Returning user - connecting with existing key')
         setLocalPhase('connecting')
         try {
           await connectXMTP()
@@ -52,6 +58,7 @@ export function ConnectionProviderBridge({ children }: ConnectionProviderBridgeP
         }
       } else {
         // New user - show restore opportunity
+        verboseLog('🆕 CONNECTION: New user - showing restore opportunity')
         setLocalPhase('restore-opportunity')
       }
     }
@@ -74,6 +81,10 @@ export function ConnectionProviderBridge({ children }: ConnectionProviderBridgeP
   const skipRestore = useCallback(async () => {
     if (!blueskyProfile?.did) return
 
+    verboseWarn('⏭️ SKIP RESTORE: User chose to skip key restore')
+    verboseWarn('   DID:', blueskyProfile.did)
+    verboseWarn('   ⚠️ This will CREATE A NEW XMTP installation!')
+
     // Mark as restore-skipped for backup prompt
     setPhase(blueskyProfile.did, { phase: 'restore-skipped' })
     setLocalPhase('connecting')
@@ -89,14 +100,19 @@ export function ConnectionProviderBridge({ children }: ConnectionProviderBridgeP
   const restoreFromBackup = useCallback(async (key: Hex) => {
     if (!blueskyProfile?.did) return
 
+    verboseLog('🔐 RESTORE: Attempting to restore key from backup')
+    verboseLog('   DID:', blueskyProfile.did)
+
     setIsRestoring(true)
     setError(null)
 
     // First, try to import the key
     try {
       await importPrivateKey(blueskyProfile.did, key)
+      verboseLog('🔐 RESTORE: Key imported successfully')
     } catch (err) {
       // Import failed (wrong password, invalid key, etc.) - stay on restore screen
+      verboseError('🔐 RESTORE: Key import failed:', err)
       setError(err instanceof Error ? err.message : 'Restore failed')
       setLocalPhase('restore-opportunity')
       setIsRestoring(false)
@@ -109,6 +125,8 @@ export function ConnectionProviderBridge({ children }: ConnectionProviderBridgeP
     setLocalPhase('connecting')
     setIsRestoring(false)
 
+    verboseLog('🔐 RESTORE: Connecting with restored key (should REUSE existing installation)')
+
     try {
       await connectXMTP()
     } catch (err) {
@@ -120,6 +138,8 @@ export function ConnectionProviderBridge({ children }: ConnectionProviderBridgeP
   }, [blueskyProfile?.did, connectXMTP, setPhase])
 
   const retryConnection = useCallback(async () => {
+    verboseLog('🔄 RETRY: Retrying XMTP connection')
+
     setError(null)
     clearError()
     setLocalPhase('connecting')
@@ -134,9 +154,14 @@ export function ConnectionProviderBridge({ children }: ConnectionProviderBridgeP
 
   const clearInstallations = useCallback(async () => {
     if (!blueskyProfile?.did) {
-      console.error('No Bluesky profile to clear installations for')
+      verboseError('No Bluesky profile to clear installations for')
       return
     }
+
+    verboseWarn('🗑️ CLEAR INSTALLATIONS: Starting installation cleanup')
+    verboseWarn('   DID:', blueskyProfile.did)
+    verboseWarn('   ⚠️ This will DELETE local IndexedDB and revoke all installations!')
+    verboseWarn('   ⚠️ A NEW installation will be created on reconnect!')
 
     setIsClearing(true)
 
@@ -144,7 +169,7 @@ export function ConnectionProviderBridge({ children }: ConnectionProviderBridgeP
       // Get private key for this DID
       const privateKey = await exportPrivateKey(blueskyProfile.did)
       if (!privateKey) {
-        console.error('No private key found for DID:', blueskyProfile.did)
+        verboseError('No private key found for DID:', blueskyProfile.did)
         setError('No private key found')
         setIsClearing(false)
         return
@@ -180,28 +205,29 @@ export function ConnectionProviderBridge({ children }: ConnectionProviderBridgeP
       }
 
       if (!inboxId) {
-        console.error('Could not find inbox ID')
+        verboseError('Could not find inbox ID')
         setError('Could not find inbox ID')
         setIsClearing(false)
         return
       }
 
-      console.log('Revoking installations for inbox:', inboxId)
+      verboseLog('🗑️ CLEAR INSTALLATIONS: Revoking installations for inbox:', inboxId)
 
       // Fetch and revoke all installations
       const inboxStates = await Client.fetchInboxStates([inboxId], XMTP_ENV)
       if (inboxStates && inboxStates.length > 0) {
         const installations = inboxStates[0]?.installations ?? []
-        console.log(`Found ${installations.length} installations to revoke`)
+        verboseLog(`🗑️ CLEAR INSTALLATIONS: Found ${installations.length} installations to revoke`)
 
         const installationBytes = installations.map((i) => i.bytes)
         await Client.revokeInstallations(signer, inboxId, installationBytes, XMTP_ENV)
-        console.log('All installations revoked')
+        verboseLog('🗑️ CLEAR INSTALLATIONS: All installations revoked')
 
         // Clean up local database
         if (xmtpDb?.name) {
+          verboseWarn('🗑️ CLEAR INSTALLATIONS: Deleting IndexedDB:', xmtpDb.name)
           indexedDB.deleteDatabase(xmtpDb.name)
-          console.log('Local database deleted')
+          verboseLog('🗑️ CLEAR INSTALLATIONS: Local database deleted')
         }
       }
 
@@ -210,10 +236,12 @@ export function ConnectionProviderBridge({ children }: ConnectionProviderBridgeP
       clearError()
       setLocalPhase('connecting')
 
+      verboseWarn('🗑️ CLEAR INSTALLATIONS: Reconnecting (will create NEW installation)...')
+
       // Retry XMTP connection
       await connectXMTP()
     } catch (err) {
-      console.error('Failed to clear installations:', err)
+      verboseError('Failed to clear installations:', err)
       setError(err instanceof Error ? err.message : 'Failed to clear installations')
     } finally {
       setIsClearing(false)

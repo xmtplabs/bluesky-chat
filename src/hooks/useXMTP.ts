@@ -1,7 +1,7 @@
 import { useEffect, useCallback } from 'react'
 import { useAuthStore } from '../stores/authStore'
 import { useChatStore } from '../stores/chatStore'
-import { xmtpService } from '../services/xmtp'
+import { xmtpService, verboseLog } from '../services/xmtp'
 
 export function useXMTP() {
   const {
@@ -38,6 +38,14 @@ export function useXMTP() {
       // Restore the connection state and reload data
       const inboxId = client.inboxId
       const address = client.accountIdentifier?.identifier
+      const installationId = client.installationId
+
+      verboseLog('🔥 HOT RELOAD RECOVERY: Client survived hot reload')
+      verboseLog('   Installation ID:', installationId)
+      verboseLog('   Inbox ID:', inboxId)
+      verboseLog('   Address:', address)
+      verboseLog('   Restoring store state (NOT creating new installation)')
+
       useAuthStore.setState({
         isXMTPConnected: true,
         xmtpInboxId: inboxId,

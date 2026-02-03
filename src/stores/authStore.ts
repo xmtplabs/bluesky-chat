@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { BlueskyProfile } from '../types'
 import { blueskyService } from '../services/bluesky'
-import { xmtpService } from '../services/xmtp'
+import { xmtpService, logStartupDiagnostics, verboseLog, verboseWarn, verboseGroup, verboseGroupEnd } from '../services/xmtp'
 import { identityService } from '../services/identity'
 import { indexerService } from '../services/indexer'
 import { getOrCreatePrivateKey, createXMTPSigner, getAddressFromPrivateKey, signDidWithInstallationKey, hasExistingKey } from '../services/signer'
@@ -99,6 +99,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   error: null,
 
   initializeServices: async () => {
+    // Log startup diagnostics first to detect crashes/ungraceful shutdowns
+    logStartupDiagnostics()
+
     set({ isLoading: true, error: null })
 
     try {
@@ -172,6 +175,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   connectXMTP: async () => {
+    // Log call with stack trace for debugging (dev/beta only)
+    verboseGroup('📡 connectXMTP called')
+    verboseLog('Timestamp:', new Date().toISOString())
+    if (import.meta.env.DEV) console.trace('Call stack:')
+    verboseGroupEnd()
+
     set({ isLoading: true, error: null })
 
     try {
@@ -183,31 +192,31 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         throw new Error('Bluesky profile required for XMTP connection')
       }
 
-      console.log('Getting or creating private key for DID:', blueskyProfile.did)
+      verboseLog('📡 connectXMTP: Getting or creating private key for DID:', blueskyProfile.did)
       const privateKey = await getOrCreatePrivateKey(blueskyProfile.did)
       const address = getAddressFromPrivateKey(privateKey)
-      console.log('Got address:', address)
+      verboseLog('📡 connectXMTP: Got address:', address)
 
-      console.log('Creating XMTP signer...')
+      verboseLog('📡 connectXMTP: Creating XMTP signer...')
       const signer = createXMTPSigner(privateKey)
-      console.log('Signer created, initializing XMTP client...')
+      verboseLog('📡 connectXMTP: Signer created, initializing XMTP client...')
       const client = await xmtpService.init(signer)
-      console.log('XMTP client initialized:', client.inboxId)
+      verboseLog('📡 connectXMTP: XMTP client initialized:', client.inboxId)
 
       const inboxId = client.inboxId
 
       // Step 2: Check for existing identity binding in ATProto (now that XMTP is ready)
       if (blueskyProfile && inboxId) {
-        console.log('Checking for existing org.xmtp.inbox record...')
+        verboseLog('Checking for existing org.xmtp.inbox record...')
         const existingBinding = await identityService.lookupInboxForDid(blueskyProfile.did)
 
         if (existingBinding) {
-          console.log('Found existing record with inboxId:', existingBinding.inboxId)
+          verboseLog('Found existing record with inboxId:', existingBinding.inboxId)
 
           // Check if the existing record matches our current inbox
           if (existingBinding.inboxId === inboxId) {
             // Inbox ID matches - verify the signature is valid
-            console.log('Existing record matches our inbox ID - verifying signature...')
+            verboseLog('Existing record matches our inbox ID - verifying signature...')
             const isSignatureValid = await identityService.verifyIdentityBinding(
               existingBinding.inboxId,
               blueskyProfile.did,
@@ -215,7 +224,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             )
 
             if (isSignatureValid) {
-              console.log('Signature is valid')
+              verboseLog('Signature is valid')
               set({
                 identityMismatch: false,
                 signatureInvalid: false,
@@ -223,7 +232,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
               })
             } else {
               // Signature is invalid - track this for UI
-              console.warn('Published signature is invalid!')
+              verboseWarn('Published signature is invalid!')
               set({
                 identityMismatch: false,
                 signatureInvalid: true,
@@ -242,10 +251,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             )
           } else {
             // Different inbox ID - this is a conflict
-            console.warn(
+            verboseWarn(
               `Identity mismatch! ATProto has inbox ${existingBinding.inboxId} but local client has ${inboxId}`
             )
-            console.warn(
+            verboseWarn(
               'This may happen if you logged in on a different device first. ' +
                 'Messages sent to you will go to the ATProto-linked inbox.'
             )
@@ -268,20 +277,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           }
         } else {
           // No existing record - create new binding
-          console.log('No existing org.xmtp.inbox record found, creating new binding...')
+          verboseLog('No existing org.xmtp.inbox record found, creating new binding...')
           const signature = await signDidWithInstallationKey(client, blueskyProfile.did)
 
           if (blueskyService.hasRepoWriteAccess()) {
-            console.log('Publishing new identity binding to ATProto PDS...')
+            verboseLog('Publishing new identity binding to ATProto PDS...')
             try {
               const agent = blueskyService.getAgent()
               await identityService.publishIdentityToATProto(agent, inboxId, signature)
-              console.log('Identity published to ATProto PDS')
+              verboseLog('Identity published to ATProto PDS')
             } catch (publishError) {
-              console.warn('Failed to publish identity to ATProto:', publishError)
+              verboseWarn('Failed to publish identity to ATProto:', publishError)
             }
           } else {
-            console.log(
+            verboseLog(
               'Skipping ATProto publish (no write access). Use App Password for full identity linking.'
             )
           }

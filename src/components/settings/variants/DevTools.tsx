@@ -3,6 +3,7 @@ import { useSettings } from '../context/SettingsContext'
 import { useAuthStore, useOnboardingStore } from '../../../stores/authStore'
 import { blueskyService } from '../../../services/bluesky'
 import { identityService } from '../../../services/identity'
+import { xmtpService } from '../../../services/xmtp'
 import { clearPrivateKey } from '../../../services/signer'
 import type { BuildMode } from '../../../types'
 
@@ -23,6 +24,8 @@ export function DevTools() {
   const [showDevTools, setShowDevTools] = useState(false)
   const [isWorking, setIsWorking] = useState(false)
   const [atprotoRecord, setAtprotoRecord] = useState<{ inboxId: string; signature: string } | null | 'loading'>('loading')
+  const [installationCount, setInstallationCount] = useState<number | 'loading' | 'error'>('loading')
+  const [currentInstallationId, setCurrentInstallationId] = useState<string | null>(null)
 
   const { getPhase, setPhase: setOnboardingPhase } = useOnboardingStore()
   const { checkIdentityStatus } = useAuthStore()
@@ -51,6 +54,18 @@ export function DevTools() {
       .catch(() => setAtprotoRecord(null))
   }, [blueskyProfile?.did, showDevTools, buildMode])
 
+  // Fetch installation count when expanded
+  useEffect(() => {
+    if (buildMode === null || buildMode === 'production') return
+    if (!showDevTools || !xmtpInboxId) return
+
+    setCurrentInstallationId(xmtpService.getInstallationId() ?? null)
+
+    xmtpService.getInstallationCount()
+      .then(count => setInstallationCount(count))
+      .catch(() => setInstallationCount('error'))
+  }, [showDevTools, xmtpInboxId, buildMode])
+
   // Visibility rules:
   // - Always visible in development mode
   // - Always visible in beta mode
@@ -68,6 +83,31 @@ export function DevTools() {
       setAtprotoRecord(record ? { inboxId: record.inboxId, signature: record.verificationSignature } : null)
     } catch {
       setAtprotoRecord(null)
+    }
+  }
+
+  const refreshInstallationCount = async () => {
+    setInstallationCount('loading')
+    try {
+      const count = await xmtpService.getInstallationCount()
+      setInstallationCount(count)
+    } catch {
+      setInstallationCount('error')
+    }
+  }
+
+  const revokeOtherInstallations = async () => {
+    if (!confirm('Revoke all other installations? This will sign out all other devices/sessions using this inbox. Your current session will remain active.')) return
+
+    setIsWorking(true)
+    try {
+      await xmtpService.revokeAllOtherInstallations()
+      await refreshInstallationCount()
+      actions.setSuccess('Other installations revoked')
+    } catch (err) {
+      actions.setError(err instanceof Error ? err.message : 'Failed to revoke installations')
+    } finally {
+      setIsWorking(false)
     }
   }
 
@@ -380,6 +420,57 @@ export function DevTools() {
                   App Password required for ATProto changes
                 </p>
               )}
+            </div>
+          </details>
+
+          {/* XMTP Installations */}
+          <details className="group">
+            <summary className="flex items-center justify-between cursor-pointer text-[12px] font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] px-2">
+              <span className="flex items-center gap-1.5">
+                <svg className="w-3 h-3 transition-transform group-open:rotate-90" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                </svg>
+                XMTP Installations
+              </span>
+              <button
+                onClick={(e) => { e.preventDefault(); refreshInstallationCount() }}
+                className="text-[10px] text-[var(--color-bsky-500)] hover:text-[var(--color-bsky-600)]"
+              >
+                Refresh
+              </button>
+            </summary>
+            <div className="mt-2 space-y-2 px-1">
+              <div className="px-2 py-1.5 bg-[var(--color-surface-secondary)] rounded-lg font-mono text-[10px] space-y-0.5">
+                <div className="flex justify-between">
+                  <span className="text-[var(--color-text-tertiary)]">Current ID:</span>
+                  <span className="text-[var(--color-text-primary)]">
+                    {currentInstallationId ? truncateId(currentInstallationId, 6) : 'none'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[var(--color-text-tertiary)]">Total Count:</span>
+                  <span className={
+                    installationCount === 'loading' ? 'text-[var(--color-text-tertiary)]' :
+                    installationCount === 'error' ? 'text-[var(--color-error)]' :
+                    installationCount >= 8 ? 'text-[var(--color-warning)]' :
+                    'text-[var(--color-text-primary)]'
+                  }>
+                    {installationCount === 'loading' ? 'Loading...' :
+                     installationCount === 'error' ? 'Error' :
+                     `${installationCount} / 10`}
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={revokeOtherInstallations}
+                disabled={isWorking || installationCount === 'loading' || installationCount === 'error' || installationCount <= 1}
+                className="w-full h-8 text-[11px] font-medium bg-[var(--color-warning-light)] text-[var(--color-text-primary)] hover:brightness-95 rounded-lg transition-all disabled:opacity-50"
+              >
+                Revoke Other Installations
+              </button>
+              <p className="text-[10px] text-[var(--color-text-tertiary)] px-1">
+                Signs out all other devices. Use if you hit the 10-installation limit.
+              </p>
             </div>
           </details>
 

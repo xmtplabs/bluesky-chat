@@ -2,6 +2,7 @@ import { privateKeyToAccount, generatePrivateKey } from 'viem/accounts'
 import { toBytes, type Hex } from 'viem'
 import type { Signer, Identifier, Client } from '@xmtp/browser-sdk'
 import { IdentifierKind } from '@xmtp/browser-sdk'
+import { verboseLog, verboseWarn } from './xmtp'
 
 const WALLET_KEY_PREFIX = 'xmtp-wallet-key-'
 
@@ -24,17 +25,18 @@ export async function getOrCreatePrivateKey(did: string): Promise<Hex> {
   const existingKey = await window.electronAPI.secureRetrieve(storageKey)
 
   if (existingKey) {
-    if (import.meta.env.DEV) {
-      console.log('Found existing XMTP key for DID:', did)
-    }
+    const address = getAddressFromPrivateKey(existingKey as Hex)
+    verboseLog('🔑 XMTP Key: REUSING existing key for DID:', did)
+    verboseLog('   Address:', address)
     return existingKey as Hex
   }
 
   // Generate new key for this DID
-  if (import.meta.env.DEV) {
-    console.log('Creating new XMTP key for DID:', did)
-  }
+  verboseWarn('🆕 XMTP Key: CREATING NEW key for DID:', did)
+  verboseWarn('   ⚠️ This will create a new XMTP installation!')
   const newKey = generatePrivateKey()
+  const address = getAddressFromPrivateKey(newKey)
+  verboseWarn('   New Address:', address)
 
   // Store securely with DID-specific key
   await window.electronAPI.secureStore(storageKey, newKey)

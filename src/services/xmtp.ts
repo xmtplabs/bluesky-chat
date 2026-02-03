@@ -14,7 +14,326 @@ import {
 
 // Use production network for built distributions, dev for development
 const XMTP_ENV = import.meta.env.MODE === 'production' ? 'production' : 'dev'
-console.log(`XMTP environment: ${XMTP_ENV}`)
+
+// Verbose logging is enabled in dev and beta builds (same rule as devTools)
+let verboseLogging = import.meta.env.DEV // Default to true in dev, will be updated
+
+// Initialize verbose logging flag from build mode
+async function initVerboseLogging(): Promise<void> {
+  try {
+    const buildMode = await window.electronAPI?.getBuildMode?.()
+    verboseLogging = buildMode !== 'production'
+  } catch {
+    // Fall back to DEV check if electronAPI not available
+    verboseLogging = import.meta.env.DEV
+  }
+}
+
+// Initialize on load
+initVerboseLogging()
+
+// Helper for conditional logging (exported for use in other files)
+export function verboseLog(...args: unknown[]): void {
+  if (verboseLogging) console.log(...args)
+}
+
+export function verboseWarn(...args: unknown[]): void {
+  if (verboseLogging) console.warn(...args)
+}
+
+export function verboseError(...args: unknown[]): void {
+  if (verboseLogging) console.error(...args)
+}
+
+export function verboseGroup(label: string): void {
+  if (verboseLogging) console.group(label)
+}
+
+export function verboseGroupEnd(): void {
+  if (verboseLogging) console.groupEnd()
+}
+
+verboseLog(`XMTP environment: ${XMTP_ENV}`)
+
+// Installation diagnostic storage keys (per-inbox to support multi-user)
+const INSTALLATION_HISTORY_KEY = 'xmtp-installation-history'
+const SESSION_ACTIVE_KEY = 'xmtp-session-active'
+const SESSION_START_KEY = 'xmtp-session-start'
+const LAST_ORIGIN_KEY = 'xmtp-last-origin'
+
+// Per-inbox keys (we append inbox ID when we have it)
+function getPerInboxKey(baseKey: string, inboxId: string): string {
+  return `${baseKey}-${inboxId}`
+}
+
+const LAST_INSTALLATION_ID_KEY = 'xmtp-last-installation-id'
+const LAST_INBOX_ID_KEY = 'xmtp-last-inbox-id'
+const LAST_ENV_KEY = 'xmtp-last-env'
+
+interface InstallationDiagnostics {
+  timestamp: string
+  installationId: string
+  inboxId: string
+  env: string
+  isNewInstallation: boolean
+  reason: string
+  details: {
+    previousInstallationId: string | null
+    previousInboxId: string | null
+    previousEnv: string | null
+    indexedDbExists: boolean
+    indexedDbName: string | null
+    privateKeyExists: boolean
+    signerAddress: string
+  }
+}
+
+/**
+ * Check if an IndexedDB database exists for the current environment
+ */
+async function checkIndexedDbExists(): Promise<{ exists: boolean; dbName: string | null }> {
+  try {
+    const databases = await indexedDB.databases()
+    const dbPrefix = `xmtp-${XMTP_ENV}-`
+    const xmtpDb = databases.find((db) => db.name?.startsWith(dbPrefix))
+    return {
+      exists: !!xmtpDb,
+      dbName: xmtpDb?.name ?? null
+    }
+  } catch (error) {
+    verboseWarn('Could not check IndexedDB:', error)
+    return { exists: false, dbName: null }
+  }
+}
+
+/**
+ * Get previous installation info from localStorage for a specific inbox
+ * Uses per-inbox keys so multi-user doesn't cause false "new installation" warnings
+ */
+function getPreviousInstallationInfo(inboxId?: string): {
+  installationId: string | null
+  inboxId: string | null
+  env: string | null
+} {
+  // If we have an inbox ID, use per-inbox keys
+  if (inboxId) {
+    return {
+      installationId: localStorage.getItem(getPerInboxKey(LAST_INSTALLATION_ID_KEY, inboxId)),
+      inboxId: inboxId,
+      env: localStorage.getItem(getPerInboxKey(LAST_ENV_KEY, inboxId))
+    }
+  }
+  // Fallback to global keys for startup diagnostics (before we know the inbox)
+  return {
+    installationId: localStorage.getItem(LAST_INSTALLATION_ID_KEY),
+    inboxId: localStorage.getItem(LAST_INBOX_ID_KEY),
+    env: localStorage.getItem(LAST_ENV_KEY)
+  }
+}
+
+/**
+ * Save current installation info to localStorage (both per-inbox and global)
+ */
+function saveInstallationInfo(installationId: string, inboxId: string): void {
+  // Save per-inbox (for accurate multi-user tracking)
+  localStorage.setItem(getPerInboxKey(LAST_INSTALLATION_ID_KEY, inboxId), installationId)
+  localStorage.setItem(getPerInboxKey(LAST_ENV_KEY, inboxId), XMTP_ENV)
+
+  // Also save global (for startup diagnostics before we know the inbox)
+  localStorage.setItem(LAST_INSTALLATION_ID_KEY, installationId)
+  localStorage.setItem(LAST_INBOX_ID_KEY, inboxId)
+  localStorage.setItem(LAST_ENV_KEY, XMTP_ENV)
+}
+
+/**
+ * Log installation diagnostics to console and localStorage history
+ */
+function logInstallationDiagnostics(diagnostics: InstallationDiagnostics): void {
+  const prefix = diagnostics.isNewInstallation
+    ? '🚨 NEW XMTP INSTALLATION CREATED'
+    : '✅ XMTP INSTALLATION REUSED (this is normal)'
+
+  verboseGroup(prefix)
+  verboseLog('Timestamp:', diagnostics.timestamp)
+  verboseLog('Installation ID:', diagnostics.installationId)
+  verboseLog('Inbox ID:', diagnostics.inboxId)
+  verboseLog('Environment:', diagnostics.env)
+
+  if (diagnostics.isNewInstallation) {
+    verboseWarn('⚠️ REASON:', diagnostics.reason)
+    verboseLog('Details:', diagnostics.details)
+
+    // Extra warning for common issues
+    if (diagnostics.details.previousEnv && diagnostics.details.previousEnv !== diagnostics.env) {
+      verboseError(
+        `🔴 ENVIRONMENT MISMATCH: Was "${diagnostics.details.previousEnv}", now "${diagnostics.env}". ` +
+        'This creates a new installation and loses conversation history!'
+      )
+    }
+    if (!diagnostics.details.indexedDbExists) {
+      verboseError(
+        '🔴 INDEXEDDB MISSING: No existing database found. ' +
+        'This could be due to browser data clearing or first run in this environment.'
+      )
+    }
+  } else {
+    verboseLog('👍 Conversation history preserved - same installation as before')
+  }
+  verboseGroupEnd()
+
+  // Save to history (keep last 20 entries)
+  try {
+    const historyJson = localStorage.getItem(INSTALLATION_HISTORY_KEY)
+    const history: InstallationDiagnostics[] = historyJson ? JSON.parse(historyJson) : []
+    history.unshift(diagnostics)
+    if (history.length > 20) history.pop()
+    localStorage.setItem(INSTALLATION_HISTORY_KEY, JSON.stringify(history))
+  } catch (error) {
+    verboseWarn('Could not save installation history:', error)
+  }
+}
+
+/**
+ * Get installation history for debugging
+ */
+export function getInstallationHistory(): InstallationDiagnostics[] {
+  try {
+    const historyJson = localStorage.getItem(INSTALLATION_HISTORY_KEY)
+    return historyJson ? JSON.parse(historyJson) : []
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Print installation history to console (call from dev tools)
+ */
+export function printInstallationHistory(): void {
+  const history = getInstallationHistory()
+  console.group('XMTP Installation History')
+  if (history.length === 0) {
+    console.log('No installation history found')
+  } else {
+    history.forEach((entry, index) => {
+      const icon = entry.isNewInstallation ? '🚨' : '✅'
+      console.group(`${icon} ${index + 1}. ${entry.timestamp}`)
+      console.log('Installation ID:', entry.installationId)
+      console.log('Inbox ID:', entry.inboxId)
+      console.log('Environment:', entry.env)
+      console.log('New Installation:', entry.isNewInstallation)
+      if (entry.isNewInstallation) {
+        console.log('Reason:', entry.reason)
+        console.log('Details:', entry.details)
+      }
+      console.groupEnd()
+    })
+  }
+  console.groupEnd()
+}
+
+/**
+ * Check if the previous session ended gracefully
+ */
+function checkPreviousSessionState(): { wasActive: boolean; startTime: string | null } {
+  const wasActive = localStorage.getItem(SESSION_ACTIVE_KEY) === 'true'
+  const startTime = localStorage.getItem(SESSION_START_KEY)
+  return { wasActive, startTime }
+}
+
+/**
+ * Mark session as active (called on init)
+ */
+function markSessionActive(): void {
+  localStorage.setItem(SESSION_ACTIVE_KEY, 'true')
+  localStorage.setItem(SESSION_START_KEY, new Date().toISOString())
+}
+
+/**
+ * Mark session as cleanly ended (called on disconnect)
+ */
+function markSessionEnded(): void {
+  localStorage.setItem(SESSION_ACTIVE_KEY, 'false')
+}
+
+/**
+ * Log startup diagnostics - call this early in app startup
+ */
+export function logStartupDiagnostics(): void {
+  const previousSession = checkPreviousSessionState()
+  const previousInfo = getPreviousInstallationInfo()
+  const currentOrigin = typeof window !== 'undefined' ? window.location.origin : 'unknown'
+  const previousOrigin = localStorage.getItem(LAST_ORIGIN_KEY)
+
+  // Save current origin for next comparison
+  localStorage.setItem(LAST_ORIGIN_KEY, currentOrigin)
+
+  verboseGroup('🚀 XMTP STARTUP DIAGNOSTICS')
+  verboseLog('Timestamp:', new Date().toISOString())
+  verboseLog('Environment:', XMTP_ENV)
+  verboseLog('Build mode:', import.meta.env.MODE)
+  verboseLog('Current origin:', currentOrigin)
+  verboseLog('Previous origin:', previousOrigin || 'none')
+
+  // Check for origin (port) change - this is the main cause of lost installations in dev!
+  if (previousOrigin && previousOrigin !== currentOrigin) {
+    verboseError('🔴 ORIGIN CHANGED (different port)')
+    verboseError(`   Previous: ${previousOrigin}`)
+    verboseError(`   Current:  ${currentOrigin}`)
+    verboseError('   IndexedDB is scoped to origin - this WILL create a new installation!')
+    verboseError('   💡 Fix: Use strictPort in vite config or kill the process using the old port')
+  }
+
+  if (previousSession.wasActive) {
+    verboseWarn('⚠️ PREVIOUS SESSION DID NOT END GRACEFULLY')
+    verboseWarn('   Previous session started:', previousSession.startTime)
+    verboseWarn('   This could indicate a crash, force quit, or killed dev server')
+    verboseWarn('   (This alone should NOT cause a new installation - IndexedDB should persist)')
+  } else {
+    verboseLog('✅ Previous session ended gracefully')
+  }
+
+  verboseLog('Previous installation ID:', previousInfo.installationId?.slice(0, 16) + '...' || 'none')
+  verboseLog('Previous inbox ID:', previousInfo.inboxId?.slice(0, 16) + '...' || 'none')
+  verboseLog('Previous environment:', previousInfo.env || 'none')
+
+  if (previousInfo.env && previousInfo.env !== XMTP_ENV) {
+    verboseError('🔴 ENVIRONMENT MISMATCH DETECTED')
+    verboseError(`   Previous: ${previousInfo.env}, Current: ${XMTP_ENV}`)
+    verboseError('   This WILL create a new installation!')
+  }
+
+  verboseGroupEnd()
+}
+
+// Expose to window for easy debugging
+if (typeof window !== 'undefined') {
+  (window as unknown as {
+    xmtpDiagnostics: {
+      getHistory: typeof getInstallationHistory
+      printHistory: typeof printInstallationHistory
+      logStartup: typeof logStartupDiagnostics
+    }
+  }).xmtpDiagnostics = {
+    getHistory: getInstallationHistory,
+    printHistory: printInstallationHistory,
+    logStartup: logStartupDiagnostics
+  }
+
+  // Try to mark session as ended on window close
+  // This won't work for hard kills but helps with normal closes
+  window.addEventListener('beforeunload', () => {
+    verboseLog('🔌 BEFOREUNLOAD: Marking session as ended')
+    markSessionEnded()
+  })
+
+  // Also listen for visibility change to hidden (app backgrounded/closed)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      // Don't mark as ended yet, just log
+      verboseLog('👁️ VISIBILITY: App hidden/backgrounded')
+    }
+  })
+}
 
 // The SDK uses different types for Group and DM conversations
 type XMTPConversation = Group | Dm
@@ -35,8 +354,24 @@ class XMTPService {
   private reconnectTimeouts: Map<'message' | 'conversation', ReturnType<typeof setTimeout>> = new Map()
 
   async init(signer: Signer): Promise<Client> {
-    console.log('XMTPService.init: Creating client with signer...')
-    console.log('Signer identifier:', signer.getIdentifier())
+    verboseLog('XMTPService.init: Creating client with signer...')
+    const signerIdentifierResult = signer.getIdentifier()
+    // Handle both sync and async getIdentifier
+    const signerIdentifier = signerIdentifierResult instanceof Promise
+      ? await signerIdentifierResult
+      : signerIdentifierResult
+    verboseLog('Signer identifier:', signerIdentifier)
+
+    // Gather pre-creation diagnostics (we don't know inbox ID yet)
+    const indexedDbInfo = await checkIndexedDbExists()
+    const signerAddress = signerIdentifier.identifier
+
+    verboseLog('Pre-creation diagnostics:', {
+      currentEnv: XMTP_ENV,
+      indexedDbExists: indexedDbInfo.exists,
+      indexedDbName: indexedDbInfo.dbName
+    })
+
     try {
       // Use default dbPath which persists in IndexedDB.
       // The browser-sdk stores the database in IndexedDB automatically.
@@ -45,13 +380,66 @@ class XMTPService {
       this.client = await Client.create(signer, {
         env: XMTP_ENV
       })
-      console.log('XMTPService.init: Client created successfully')
-      console.log('XMTPService.init: Installation ID:', this.client.installationId)
+
+      const newInstallationId = this.client.installationId ?? 'unknown'
+      const newInboxId = this.client.inboxId ?? 'unknown'
+
+      // Now that we know the inbox ID, get per-inbox previous info
+      // This ensures switching users doesn't cause false "new installation" warnings
+      const previousInfo = getPreviousInstallationInfo(newInboxId)
+
+      // Determine if this is a new installation and why
+      let isNewInstallation = false
+      let reason = 'Installation reused successfully'
+
+      if (!previousInfo.installationId) {
+        isNewInstallation = true
+        reason = 'First installation for this inbox (no previous installation recorded)'
+      } else if (previousInfo.installationId !== newInstallationId) {
+        isNewInstallation = true
+
+        // Determine the reason
+        if (previousInfo.env !== XMTP_ENV) {
+          reason = `Environment changed from "${previousInfo.env}" to "${XMTP_ENV}"`
+        } else if (!indexedDbInfo.exists) {
+          reason = 'IndexedDB database was missing (cleared or first run in this env)'
+        } else {
+          reason = 'Installation ID changed for unknown reason (SDK created new installation)'
+        }
+      }
+
+      // Log diagnostics
+      const diagnostics: InstallationDiagnostics = {
+        timestamp: new Date().toISOString(),
+        installationId: newInstallationId,
+        inboxId: newInboxId,
+        env: XMTP_ENV,
+        isNewInstallation,
+        reason,
+        details: {
+          previousInstallationId: previousInfo.installationId,
+          previousInboxId: previousInfo.inboxId,
+          previousEnv: previousInfo.env,
+          indexedDbExists: indexedDbInfo.exists,
+          indexedDbName: indexedDbInfo.dbName,
+          privateKeyExists: true, // We got here, so key exists
+          signerAddress
+        }
+      }
+
+      logInstallationDiagnostics(diagnostics)
+
+      // Save current installation info for next comparison
+      saveInstallationInfo(newInstallationId, newInboxId)
+
+      // Mark session as active for crash detection
+      markSessionActive()
+
       return this.client
     } catch (error) {
-      console.error('XMTPService.init: Client creation failed:', error)
-      console.error('Error type:', error?.constructor?.name)
-      console.error('Error message:', error instanceof Error ? error.message : String(error))
+      verboseError('XMTPService.init: Client creation failed:', error)
+      verboseError('Error type:', error?.constructor?.name)
+      verboseError('Error message:', error instanceof Error ? error.message : String(error))
       throw error
     }
   }
@@ -134,7 +522,7 @@ class XMTPService {
     try {
       await conversation.sync()
     } catch (syncError) {
-      console.warn('Conversation sync had issues, loading existing messages:', syncError)
+      verboseWarn('Conversation sync had issues, loading existing messages:', syncError)
     }
     const messages = await conversation.messages()
     return messages
@@ -220,9 +608,9 @@ class XMTPService {
       // This ensures we see new message requests while filtering out denied/spam
       const stream = await this.client.conversations.streamAllMessages({
         consentStates: [ConsentState.Allowed, ConsentState.Unknown],
-        onError: (error) => console.error('Message stream error:', error),
+        onError: (error) => verboseError('Message stream error:', error),
         onEnd: () => {
-          console.log('Message stream ended')
+          verboseLog('Message stream ended')
           this.scheduleReconnect('message')
         }
       })
@@ -234,7 +622,7 @@ class XMTPService {
         callback(message)
       }
     } catch (error) {
-      console.error('Message stream iteration error:', error)
+      verboseError('Message stream iteration error:', error)
       this.scheduleReconnect('message')
     }
   }
@@ -249,9 +637,9 @@ class XMTPService {
 
     try {
       const stream = await this.client.conversations.stream({
-        onError: (error) => console.error('Conversation stream error:', error),
+        onError: (error) => verboseError('Conversation stream error:', error),
         onEnd: () => {
-          console.log('Conversation stream ended')
+          verboseLog('Conversation stream ended')
           this.scheduleReconnect('conversation')
         }
       })
@@ -263,7 +651,7 @@ class XMTPService {
         callback(conversation)
       }
     } catch (error) {
-      console.error('Conversation stream iteration error:', error)
+      verboseError('Conversation stream iteration error:', error)
       this.scheduleReconnect('conversation')
     }
   }
@@ -281,7 +669,7 @@ class XMTPService {
     const existingTimeout = this.reconnectTimeouts.get(type)
     if (existingTimeout) clearTimeout(existingTimeout)
 
-    console.log(`${type} stream ended unexpectedly, reconnecting in ${STREAM_RECONNECT_DELAY_MS / 1000}s...`)
+    verboseLog(`${type} stream ended unexpectedly, reconnecting in ${STREAM_RECONNECT_DELAY_MS / 1000}s...`)
 
     const timeoutId = setTimeout(() => {
       this.reconnectTimeouts.delete(type)
@@ -404,11 +792,15 @@ class XMTPService {
   }
 
   async disconnect(): Promise<void> {
+    verboseLog('🔌 XMTP DISCONNECT: Graceful shutdown initiated')
     await this.stopStreaming()
     if (this.client) {
       this.client.close()
     }
     this.client = null
+    // Mark session as cleanly ended
+    markSessionEnded()
+    verboseLog('🔌 XMTP DISCONNECT: Session marked as ended gracefully')
   }
 
   /**
@@ -432,7 +824,7 @@ class XMTPService {
       }
       return inboxStates[0].installations.length
     } catch (error) {
-      console.error('Failed to get installation count:', error)
+      verboseError('Failed to get installation count:', error)
       return 0
     }
   }
@@ -446,9 +838,9 @@ class XMTPService {
       throw new Error('XMTP client not initialized')
     }
 
-    console.log('Revoking all other installations...')
+    verboseLog('Revoking all other installations...')
     await this.client.revokeAllOtherInstallations()
-    console.log('All other installations revoked')
+    verboseLog('All other installations revoked')
   }
 }
 
@@ -476,22 +868,22 @@ export async function verifyInboxOwnership(
 ): Promise<boolean> {
   const client = xmtpService.getClient()
   if (!client) {
-    console.warn('Cannot verify inbox ownership: XMTP client not initialized')
+    verboseWarn('Cannot verify inbox ownership: XMTP client not initialized')
     return false
   }
 
-  console.log('Verifying inbox ownership:', { inboxId: inboxId.slice(0, 16) + '...', did })
+  verboseLog('Verifying inbox ownership:', { inboxId: inboxId.slice(0, 16) + '...', did })
 
   try {
     const inboxStates = await Client.fetchInboxStates([inboxId], XMTP_ENV)
     if (!inboxStates || inboxStates.length === 0) {
-      console.warn('No inbox state found for inboxId:', inboxId.slice(0, 16) + '...')
+      verboseWarn('No inbox state found for inboxId:', inboxId.slice(0, 16) + '...')
       return false
     }
 
     const inboxState = inboxStates[0]
     const signatureBytes = base64ToUint8Array(signature)
-    console.log(`Checking ${inboxState.installations.length} installations for valid signature`)
+    verboseLog(`Checking ${inboxState.installations.length} installations for valid signature`)
 
     // Check if any installation key in the inbox can verify the signature
     for (let i = 0; i < inboxState.installations.length; i++) {
@@ -499,16 +891,16 @@ export async function verifyInboxOwnership(
       try {
         const isValid = await client.verifySignedWithPublicKey(did, signatureBytes, installation.bytes)
         if (isValid) {
-          console.log(`Signature verified by installation ${i}`)
+          verboseLog(`Signature verified by installation ${i}`)
           return true
         }
       } catch (verifyError) {
-        console.log(`Installation ${i} verify error:`, verifyError)
+        verboseLog(`Installation ${i} verify error:`, verifyError)
       }
     }
-    console.warn('No installation could verify the signature')
+    verboseWarn('No installation could verify the signature')
   } catch (error) {
-    console.error('Error verifying inbox ownership:', error)
+    verboseError('Error verifying inbox ownership:', error)
   }
 
   return false

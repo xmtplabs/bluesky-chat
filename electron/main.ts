@@ -75,10 +75,11 @@ function createWindow(): void {
     return { action: 'deny' }
   })
 
+  // In dev mode: load from Vite dev server directly (HMR works, each port = separate IndexedDB)
+  // In packaged mode: use app:// protocol (consistent origin, avoids file:// issues)
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
-    // Use custom protocol for consistent storage origin
     mainWindow.loadURL(`${PROTOCOL_SCHEME}://./index.html`)
   }
 }
@@ -314,15 +315,14 @@ app.whenReady().then(() => {
   // Set proper display name for menus (package.json name is "bluesky-chat")
   app.setName('Bluesky Chat')
 
-  // Register custom protocol handler for packaged app
-  // This serves files from the renderer directory with a consistent origin
+  // Register custom protocol handler for packaged app only
+  // This provides a consistent origin (app://.) and avoids file:// URL issues
+  // In dev mode, we load directly from Vite (HMR works normally)
   if (!is.dev) {
     const rendererPath = join(__dirname, '../renderer')
     protocol.handle(PROTOCOL_SCHEME, (request) => {
-      // Extract path from app://./path URL
       const url = new URL(request.url)
       let filePath = url.pathname
-      // Handle root path
       if (filePath === '/' || filePath === '') {
         filePath = '/index.html'
       }
