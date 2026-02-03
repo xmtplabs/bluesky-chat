@@ -1,6 +1,8 @@
 import { useConversation } from './context/ConversationContext'
 import { VirtualList } from '../shared/VirtualList'
 import { ConversationItem } from './ConversationItem'
+import { useAuthStore } from '../../stores/authStore'
+import { getLastKnownConversationCount } from '../../stores/chatStore'
 
 /**
  * Loading skeleton for conversations
@@ -19,6 +21,15 @@ function ConversationListLoading() {
       ))}
     </div>
   )
+}
+
+/**
+ * Check if user is known to have zero conversations based on their last session.
+ */
+function useIsKnownEmpty(): boolean {
+  const did = useAuthStore((s) => s.blueskyProfile?.did)
+  if (!did) return false
+  return getLastKnownConversationCount(did) === 0
 }
 
 /**
@@ -49,8 +60,11 @@ export function ConversationListView() {
   const { conversations, selectedId } = state
   const { select } = actions
   const { isLoading } = meta
+  const isKnownEmpty = useIsKnownEmpty()
 
-  if (isLoading && conversations.length === 0) {
+  // Show skeletons while loading, unless we know the user has no conversations
+  // (e.g., they just created a fresh XMTP installation by skipping restore)
+  if (isLoading && conversations.length === 0 && !isKnownEmpty) {
     return <ConversationListLoading />
   }
 

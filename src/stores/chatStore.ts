@@ -175,6 +175,25 @@ const saveInitiatedConversations = (conversations: Set<string>) => {
   }
 }
 
+// Get last known conversation count for a DID (used to skip skeleton loading for known-empty inboxes)
+export const getLastKnownConversationCount = (did: string): number | null => {
+  try {
+    const stored = localStorage.getItem(`xmtp_conversation_count_${did}`)
+    return stored !== null ? parseInt(stored, 10) : null
+  } catch {
+    return null
+  }
+}
+
+// Save conversation count for a DID
+const saveConversationCount = (did: string, count: number) => {
+  try {
+    localStorage.setItem(`xmtp_conversation_count_${did}`, String(count))
+  } catch (error) {
+    console.error('Failed to save conversation count:', error)
+  }
+}
+
 interface ChatState {
   conversations: ChatConversation[]
   messages: Map<string, ChatMessage[]>
@@ -299,6 +318,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
       chatConversations.sort((a, b) => (b.lastMessageTime || 0) - (a.lastMessageTime || 0))
 
       set({ conversations: chatConversations })
+
+      // Persist conversation count for this user (used to skip skeleton loading on next launch)
+      const did = blueskyService.getDid()
+      if (did) {
+        saveConversationCount(did, chatConversations.length)
+      }
     } catch (error) {
       console.error('Failed to load conversations:', error)
       set({ error: error instanceof Error ? error.message : 'Failed to load conversations' })
