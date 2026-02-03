@@ -136,18 +136,47 @@ function createAuthWindow(url: string): Promise<{ code: string; state: string; i
       return null
     }
 
-    // Check if URL is an OAuth callback with code and state
-    const isOAuthCallback = (parsedUrl: URL): boolean => {
-      const isLoopback =
-        parsedUrl.hostname === '127.0.0.1' ||
+    // Check for OAuth error response (e.g., user cancelled)
+    const getOAuthError = (parsedUrl: URL): string | null => {
+      // Check query string first
+      let error = parsedUrl.searchParams.get('error')
+      let errorDescription = parsedUrl.searchParams.get('error_description')
+
+      // If not in query string, check hash fragment
+      if (!error) {
+        const hash = parsedUrl.hash.startsWith('#') ? parsedUrl.hash.slice(1) : parsedUrl.hash
+        if (hash) {
+          const hashParams = new URLSearchParams(hash)
+          error = hashParams.get('error')
+          errorDescription = hashParams.get('error_description')
+        }
+      }
+
+      if (error) {
+        return errorDescription || error
+      }
+      return null
+    }
+
+    // Check if URL is a loopback callback URL (success or error)
+    const isLoopbackUrl = (parsedUrl: URL): boolean => {
+      return parsedUrl.hostname === '127.0.0.1' ||
         parsedUrl.hostname === 'localhost' ||
         parsedUrl.hostname === '[::1]' ||
         parsedUrl.protocol === 'bluesky-chat:'
-
-      return isLoopback && getOAuthParams(parsedUrl) !== null
     }
 
-    // Handle OAuth redirect
+    // Check if URL is an OAuth callback with code and state
+    const isOAuthCallback = (parsedUrl: URL): boolean => {
+      return isLoopbackUrl(parsedUrl) && getOAuthParams(parsedUrl) !== null
+    }
+
+    // Check if URL is an OAuth error callback
+    const isOAuthErrorCallback = (parsedUrl: URL): boolean => {
+      return isLoopbackUrl(parsedUrl) && getOAuthError(parsedUrl) !== null
+    }
+
+    // Handle OAuth redirect (success)
     const handleOAuthCallback = (parsedUrl: URL) => {
       if (resolved) return // Prevent double-resolution
 
@@ -163,7 +192,20 @@ function createAuthWindow(url: string): Promise<{ code: string; state: string; i
       }
     }
 
-    // Check current URL for OAuth params
+    // Handle OAuth error (user cancelled or other error)
+    const handleOAuthError = () => {
+      if (resolved) return // Prevent double-resolution
+
+      resolved = true
+      cleanup()
+      resolve(null) // Return null to indicate cancellation/error
+      if (authWindow && !authWindow.isDestroyed()) {
+        authWindow.close()
+      }
+      authWindow = null
+    }
+
+    // Check current URL for OAuth params or errors
     const checkCurrentUrl = () => {
       if (resolved || !authWindow || authWindow.isDestroyed()) return
 
@@ -173,6 +215,8 @@ function createAuthWindow(url: string): Promise<{ code: string; state: string; i
           const parsedUrl = new URL(currentUrl)
           if (isOAuthCallback(parsedUrl)) {
             handleOAuthCallback(parsedUrl)
+          } else if (isOAuthErrorCallback(parsedUrl)) {
+            handleOAuthError()
           }
         }
       } catch (e) {
@@ -190,6 +234,9 @@ function createAuthWindow(url: string): Promise<{ code: string; state: string; i
         if (isOAuthCallback(parsedUrl)) {
           event.preventDefault()
           handleOAuthCallback(parsedUrl)
+        } else if (isOAuthErrorCallback(parsedUrl)) {
+          event.preventDefault()
+          handleOAuthError()
         }
       } catch (e) {
         console.error('Failed to parse redirect URL:', e)
@@ -202,6 +249,9 @@ function createAuthWindow(url: string): Promise<{ code: string; state: string; i
         if (isOAuthCallback(parsedUrl)) {
           event.preventDefault()
           handleOAuthCallback(parsedUrl)
+        } else if (isOAuthErrorCallback(parsedUrl)) {
+          event.preventDefault()
+          handleOAuthError()
         }
       } catch (e) {
         console.error('Failed to parse navigate URL:', e)
