@@ -41,11 +41,14 @@ export default defineConfig({
     resolve: {
       alias: {
         '@': resolve(__dirname, 'src')
-      }
+      },
+      // Ensure single instance of wasm-bindings to avoid WASM conflicts
+      dedupe: ['@xmtp/wasm-bindings']
     },
     optimizeDeps: {
       // XMTP browser SDK uses web workers that Vite's optimizer can't handle
-      exclude: ['@xmtp/browser-sdk']
+      // wasm-bindings must also be excluded to preserve WASM loading
+      exclude: ['@xmtp/browser-sdk', '@xmtp/wasm-bindings']
     }
   }
 })
