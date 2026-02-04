@@ -30,6 +30,7 @@
     "@atproto/oauth-types": "^0.6.2",
     "@tanstack/react-virtual": "^3.13.18",
     "@xmtp/browser-sdk": "6.2.0",
+    "@xmtp/wasm-bindings": "^1.9.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "viem": "^2.23.5",
