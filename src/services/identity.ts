@@ -347,11 +347,27 @@ class IdentityService {
 
   // Register an inbox↔DID mapping (from indexer or ATProto lookup)
   registerIndexedMapping(inboxId: string, did: string): void {
-    if (!this.inboxToDid.has(inboxId)) {
-      this.inboxToDid.set(inboxId, did)
-      this.didToInbox.set(did, inboxId)
-      this.saveIndexedMappings()
+    const existingDid = this.inboxToDid.get(inboxId)
+    const existingInbox = this.didToInbox.get(did)
+
+    // Already have this exact mapping
+    if (existingDid === did && existingInbox === inboxId) {
+      return
     }
+
+    // DID re-linked to a new inbox - clean up old reverse mapping
+    if (existingInbox && existingInbox !== inboxId) {
+      this.inboxToDid.delete(existingInbox)
+    }
+
+    // Inbox re-linked to a new DID - clean up old reverse mapping
+    if (existingDid && existingDid !== did) {
+      this.didToInbox.delete(existingDid)
+    }
+
+    this.inboxToDid.set(inboxId, did)
+    this.didToInbox.set(did, inboxId)
+    this.saveIndexedMappings()
   }
 
   // Remove an inbox↔DID mapping (called when indexer sees a delete event)
