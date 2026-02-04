@@ -48,8 +48,8 @@ export function DevTools() {
     if (!blueskyProfile?.did || !showDevTools) return
 
     identityService.lookupInboxForDid(blueskyProfile.did)
-      .then(record => {
-        setAtprotoRecord(record ? { inboxId: record.inboxId, signature: record.verificationSignature } : null)
+      .then(result => {
+        setAtprotoRecord(result.found ? { inboxId: result.inboxId, signature: result.verificationSignature } : null)
       })
       .catch(() => setAtprotoRecord(null))
   }, [blueskyProfile?.did, showDevTools, buildMode])
@@ -79,8 +79,8 @@ export function DevTools() {
     if (!blueskyProfile?.did) return
     setAtprotoRecord('loading')
     try {
-      const record = await identityService.lookupInboxForDid(blueskyProfile.did)
-      setAtprotoRecord(record ? { inboxId: record.inboxId, signature: record.verificationSignature } : null)
+      const result = await identityService.lookupInboxForDid(blueskyProfile.did)
+      setAtprotoRecord(result.found ? { inboxId: result.inboxId, signature: result.verificationSignature } : null)
     } catch {
       setAtprotoRecord(null)
     }

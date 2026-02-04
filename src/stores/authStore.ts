@@ -211,7 +211,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         verboseLog('Checking for existing org.xmtp.inbox record...')
         const existingBinding = await identityService.lookupInboxForDid(blueskyProfile.did)
 
-        if (existingBinding) {
+        if (existingBinding.found) {
           verboseLog('Found existing record with inboxId:', existingBinding.inboxId)
 
           // Check if the existing record matches our current inbox
@@ -442,10 +442,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
 
     try {
-      const record = await identityService.lookupInboxForDid(blueskyProfile.did)
+      const result = await identityService.lookupInboxForDid(blueskyProfile.did)
 
-      if (!record) {
-        // No published record
+      if (!result.found) {
+        // No published record (or lookup failed)
         set({
           identityMismatch: false,
           signatureInvalid: false,
@@ -454,12 +454,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         return
       }
 
-      if (record.inboxId !== xmtpInboxId) {
+      if (result.inboxId !== xmtpInboxId) {
         // Different inbox published
         set({
           identityMismatch: true,
           signatureInvalid: false,
-          publishedInboxId: record.inboxId,
+          publishedInboxId: result.inboxId,
           mismatchDismissed: false
         })
         return
@@ -467,15 +467,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       // Same inbox - verify signature
       const isValid = await identityService.verifyIdentityBinding(
-        record.inboxId,
+        result.inboxId,
         blueskyProfile.did,
-        record.verificationSignature
+        result.verificationSignature
       )
 
       set({
         identityMismatch: false,
         signatureInvalid: !isValid,
-        publishedInboxId: record.inboxId,
+        publishedInboxId: result.inboxId,
         ...(!isValid && { mismatchDismissed: false })
       })
     } catch (error) {
