@@ -3,6 +3,7 @@ import type { IdentityMapping, BlueskyProfile } from '../types'
 import { verifyInboxOwnership } from './xmtp'
 
 const IDENTITY_STORE_KEY = 'identity-mappings'
+const INDEXED_MAPPINGS_KEY = 'jetstream-indexer-cache' // Shared inbox↔DID mappings
 const ATPROTO_COLLECTION = 'org.xmtp.inbox'
 const ATPROTO_RKEY = 'self'
 
@@ -21,11 +22,13 @@ interface ATProtoInboxRecord {
 class IdentityService {
   private mappings: Map<string, IdentityMapping> = new Map()
   private profileCache: Map<string, BlueskyProfile> = new Map()
-  // Reverse lookup: inboxId -> DID (populated by indexer)
+  // Reverse lookup: inboxId -> DID (single source of truth for all mappings)
   private inboxToDid: Map<string, string> = new Map()
+  private didToInbox: Map<string, string> = new Map()
 
   async init(): Promise<void> {
     await this.loadMappings()
+    this.loadIndexedMappings()
   }
 
   private async loadMappings(): Promise<void> {
@@ -50,6 +53,37 @@ class IdentityService {
       localStorage.setItem(IDENTITY_STORE_KEY, JSON.stringify(mappingsArray))
     } catch (error) {
       console.error('Failed to save identity mappings:', error)
+    }
+  }
+
+  private loadIndexedMappings(): void {
+    try {
+      const cached = localStorage.getItem(INDEXED_MAPPINGS_KEY)
+      if (cached) {
+        const data = JSON.parse(cached)
+        // Merge into existing maps (don't replace - loadMappings may have added entries)
+        for (const [inboxId, did] of Object.entries(data.inboxToDid || {})) {
+          this.inboxToDid.set(inboxId, did as string)
+        }
+        for (const [did, inboxId] of Object.entries(data.didToInbox || {})) {
+          this.didToInbox.set(did, inboxId as string)
+        }
+        console.log(`Loaded ${this.inboxToDid.size} indexed mappings from cache`)
+      }
+    } catch (error) {
+      console.error('Failed to load indexed mappings:', error)
+    }
+  }
+
+  private saveIndexedMappings(): void {
+    try {
+      const data = {
+        inboxToDid: Object.fromEntries(this.inboxToDid),
+        didToInbox: Object.fromEntries(this.didToInbox)
+      }
+      localStorage.setItem(INDEXED_MAPPINGS_KEY, JSON.stringify(data))
+    } catch (error) {
+      console.error('Failed to save indexed mappings:', error)
     }
   }
 
@@ -193,18 +227,24 @@ class IdentityService {
 
   /**
    * Resolve a Bluesky DID to an XMTP inbox ID.
-   * Fetches and verifies the org.xmtp.inbox record from ATProto.
+   * Always fetches and verifies from ATProto to ensure mapping is current.
+   * Use getInboxIdFromDid() for cached lookups (display purposes).
    */
   async resolveDidToInbox(did: string): Promise<string | null> {
-    // Check local cache first
+    // Check local identity mappings (user's own verified identity)
     const cached = this.mappings.get(did)
     if (cached) {
       return cached.xmtpInboxId
     }
 
-    // Fetch from ATProto
+    // Always fetch and verify from ATProto for other users
     const record = await this.lookupInboxForDid(did)
     if (!record) {
+      // User has no org.xmtp.inbox record - remove stale cache if present
+      const staleInbox = this.didToInbox.get(did)
+      if (staleInbox) {
+        this.unregisterIndexedMapping(did)
+      }
       return null
     }
 
@@ -214,6 +254,9 @@ class IdentityService {
       console.warn('Identity binding verification failed for DID:', did)
       return null
     }
+
+    // Update cache with verified mapping
+    this.registerIndexedMapping(record.inboxId, did)
 
     return record.inboxId
   }
@@ -302,9 +345,23 @@ class IdentityService {
     return Array.from(this.mappings.values()).map((m) => m.xmtpInboxId)
   }
 
-  // Register a DID -> inboxId mapping from the indexer
+  // Register an inbox↔DID mapping (from indexer or ATProto lookup)
   registerIndexedMapping(inboxId: string, did: string): void {
-    this.inboxToDid.set(inboxId, did)
+    if (!this.inboxToDid.has(inboxId)) {
+      this.inboxToDid.set(inboxId, did)
+      this.didToInbox.set(did, inboxId)
+      this.saveIndexedMappings()
+    }
+  }
+
+  // Remove an inbox↔DID mapping (called when indexer sees a delete event)
+  unregisterIndexedMapping(did: string): void {
+    const inboxId = this.didToInbox.get(did)
+    if (inboxId) {
+      this.inboxToDid.delete(inboxId)
+      this.didToInbox.delete(did)
+      this.saveIndexedMappings()
+    }
   }
 
   // Remove a mapping
