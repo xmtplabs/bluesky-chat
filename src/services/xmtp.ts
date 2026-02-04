@@ -11,6 +11,9 @@ import {
   ConversationType,
   ConsentState
 } from '@xmtp/browser-sdk'
+import {
+  verifySignedWithPublicKey as verifySignedWithPublicKeyBinding
+} from '@xmtp/wasm-bindings'
 
 // Use production network for built distributions, dev for development
 const XMTP_ENV = import.meta.env.MODE === 'production' ? 'production' : 'dev'
@@ -859,19 +862,13 @@ function base64ToUint8Array(base64: string): Uint8Array {
 /**
  * Verify that a signature was created by an installation key belonging to the given inbox.
  * Used to verify the cryptographic binding between a Bluesky DID and XMTP inbox.
- * Requires an initialized client to verify signatures.
+ * Uses static verification - no client instance required.
  */
 export async function verifyInboxOwnership(
   inboxId: string,
   did: string,
   signature: string
 ): Promise<boolean> {
-  const client = xmtpService.getClient()
-  if (!client) {
-    verboseWarn('Cannot verify inbox ownership: XMTP client not initialized')
-    return false
-  }
-
   verboseLog('Verifying inbox ownership:', { inboxId: inboxId.slice(0, 16) + '...', did })
 
   try {
@@ -889,13 +886,12 @@ export async function verifyInboxOwnership(
     for (let i = 0; i < inboxState.installations.length; i++) {
       const installation = inboxState.installations[i]
       try {
-        const isValid = await client.verifySignedWithPublicKey(did, signatureBytes, installation.bytes)
-        if (isValid) {
-          verboseLog(`Signature verified by installation ${i}`)
-          return true
-        }
-      } catch (verifyError) {
-        verboseLog(`Installation ${i} verify error:`, verifyError)
+        // Use static verification from wasm-bindings (throws on invalid)
+        verifySignedWithPublicKeyBinding(did, signatureBytes, installation.bytes)
+        verboseLog(`Signature verified by installation ${i}`)
+        return true
+      } catch {
+        // Signature didn't match this installation, try next
       }
     }
     verboseWarn('No installation could verify the signature')
