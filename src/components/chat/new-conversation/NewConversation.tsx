@@ -20,7 +20,7 @@
  * ```
  */
 
-export { NewConversationProviderBridge as Provider, clearXmtpStatusCache } from './NewConversationProviderBridge'
+export { NewConversationProviderBridge as Provider } from './NewConversationProviderBridge'
 
 // Variants
 export { Header } from './variants/Header'
@@ -35,7 +35,6 @@ export { Footer } from './variants/Footer'
 
 // Shared components
 export { Avatar } from '../../shared/Avatar'
-export { StatusBadge } from './shared/StatusBadge'
 
 // Context hook and types
 export { useNewConversation } from './context/NewConversationContext'

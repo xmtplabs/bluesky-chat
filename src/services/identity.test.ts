@@ -318,6 +318,35 @@ describe('IdentityService', () => {
 
       expect(inboxId).toBeNull()
     })
+
+    it('should clean up stale cache when signature verification fails', async () => {
+      // Pre-populate cache with stale mapping
+      identityService.registerIndexedMapping('inbox-compromised', 'did:plc:compromised')
+      expect(identityService.getDidFromInboxId('inbox-compromised')).toBe('did:plc:compromised')
+
+      // Mock fetch with valid response but different inbox ID
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            value: {
+              id: 'inbox-compromised',
+              verificationSignature: 'bad-sig'
+            }
+          })
+      })
+
+      // Mock verification to fail
+      const { verifyInboxOwnership } = await import('./xmtp')
+      vi.mocked(verifyInboxOwnership).mockResolvedValueOnce(false)
+
+      const inboxId = await identityService.resolveDidToInbox('did:plc:compromised')
+
+      expect(inboxId).toBeNull()
+      // Stale mapping should be cleaned up
+      expect(identityService.getDidFromInboxId('inbox-compromised')).toBeUndefined()
+      expect(identityService.getInboxIdFromDid('did:plc:compromised')).toBeUndefined()
+    })
   })
 
   describe('loadIndexedMappings', () => {

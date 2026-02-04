@@ -28,7 +28,7 @@ export function UserProfileModal() {
 
   const [profile, setProfile] = useState<BlueskyProfile | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [xmtpStatus, setXmtpStatus] = useState<'checking' | 'available' | 'unavailable' | 'unverified'>('checking')
+  const [xmtpStatus, setXmtpStatus] = useState<'checking' | 'available' | 'unavailable'>('checking')
   const [inboxId, setInboxId] = useState<string | null>(null)
   const [isStartingChat, setIsStartingChat] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -84,35 +84,16 @@ export function UserProfileModal() {
       setXmtpStatus('checking')
 
       try {
-        // Always fetch fresh from ATProto and verify signature
-        // (don't trust local cache - signature could have changed)
-        const result = await identityService.lookupInboxForDid(viewingProfileDid!)
-        if (!result.found) {
-          // No record published (or lookup failed)
-          if (isOwnProfile && isXMTPConnected) {
-            // Own profile with no published record - still "available" locally
-            setXmtpStatus('available')
-          } else {
-            setXmtpStatus('unavailable')
-          }
-          return
-        }
-
-        // Verify the signature
-        const isValid = await identityService.verifyIdentityBinding(
-          result.inboxId,
-          viewingProfileDid!,
-          result.verificationSignature
-        )
-
-        if (isValid) {
-          setInboxId(result.inboxId)
+        // Resolve DID to inbox ID (fetches, verifies signature, and caches mapping)
+        const resolvedInboxId = await identityService.resolveDidToInbox(viewingProfileDid!)
+        if (resolvedInboxId) {
+          setInboxId(resolvedInboxId)
+          setXmtpStatus('available')
+        } else if (isOwnProfile && isXMTPConnected) {
+          // Own profile with no published record - still "available" locally
           setXmtpStatus('available')
         } else {
-          // Has record but verification failed
-          console.warn('Identity verification failed for', viewingProfileDid)
-          setInboxId(result.inboxId)
-          setXmtpStatus('unverified')
+          setXmtpStatus('unavailable')
         }
       } catch (err) {
         console.error('Failed to check XMTP status:', err)
@@ -170,9 +151,13 @@ export function UserProfileModal() {
 
     setIsStartingChat(true)
     try {
-      const existingConversation = conversations.find(
-        (c) => !c.isGroup && c.peerProfile?.did === profile.did
-      )
+      // Match by DID if profile is populated, or by inbox ID as fallback
+      const existingConversation = conversations.find((c) => {
+        if (c.isGroup) return false
+        if (c.peerProfile?.did === profile.did) return true
+        if (inboxId && c.peerAddress === inboxId) return true
+        return false
+      })
 
       if (existingConversation) {
         selectConversation(existingConversation.id)
@@ -466,27 +451,16 @@ export function UserProfileModal() {
               </div>
 
               {/* XMTP Status */}
-              {!isEditMode && (
-                (xmtpStatus === 'unverified' || (!isOwnProfile && xmtpStatus === 'unavailable'))
-              ) && (
+              {!isEditMode && !isOwnProfile && xmtpStatus === 'unavailable' && (
                 <div className="mx-6 mb-4 text-center">
-                  {xmtpStatus === 'unavailable' ? (
-                    <span className="text-[13px] text-[var(--color-text-tertiary)]">Not on chat</span>
-                  ) : (
-                    <div className="flex items-center justify-center gap-1.5 text-[13px] text-amber-600">
-                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                      </svg>
-                      <span>{isOwnProfile ? 'Your published identity is not verified' : 'Identity not verified'}</span>
-                    </div>
-                  )}
+                  <span className="text-[13px] text-[var(--color-text-tertiary)]">Not on chat</span>
                 </div>
               )}
 
               {/* Actions */}
               {!isEditMode && (
                 <div className="px-6 pb-6 space-y-2">
-                  {!isOwnProfile && (xmtpStatus === 'available' || xmtpStatus === 'unverified') && (
+                  {!isOwnProfile && xmtpStatus === 'available' && (
                     <button
                       onClick={handleSendMessage}
                       disabled={isStartingChat}
@@ -507,7 +481,7 @@ export function UserProfileModal() {
                     target="_blank"
                     rel="noopener noreferrer"
                     className={`w-full h-11 flex items-center justify-center gap-2 text-[15px] font-medium rounded-xl transition-colors ${
-                      !isOwnProfile && (xmtpStatus === 'available' || xmtpStatus === 'unverified')
+                      !isOwnProfile && xmtpStatus === 'available'
                         ? 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-surface-secondary)]'
                         : 'bg-[var(--color-surface-secondary)] text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)]'
                     }`}

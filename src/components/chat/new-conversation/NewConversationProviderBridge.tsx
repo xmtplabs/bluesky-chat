@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
+import { useState, useEffect, useCallback, useMemo, type ReactNode } from 'react'
 import {
   NewConversationProvider,
   type NewConversationContextValue,
@@ -12,15 +12,6 @@ import { useChatStore } from '../../../stores/chatStore'
 import { useAuthStore } from '../../../stores/authStore'
 import { identityService } from '../../../services/identity'
 import type { BlueskyProfile } from '../../../types'
-
-// Cache for XMTP status checks to avoid redundant lookups
-const XMTP_STATUS_CACHE_MAX_SIZE = 500
-const xmtpStatusCache = new Map<string, XmtpUserStatus>()
-
-// Clear cache on logout (called from authStore)
-export function clearXmtpStatusCache() {
-  xmtpStatusCache.clear()
-}
 
 interface NewConversationProviderBridgeProps {
   children: ReactNode
@@ -56,63 +47,18 @@ export function NewConversationProviderBridge({ children, onClose }: NewConversa
   const { conversations, selectConversation } = useChatStore()
   const { blueskyProfile: currentUser } = useAuthStore()
 
-  // Ref to track which DIDs are currently being checked (prevents race conditions)
-  const checkingRef = useRef<Set<string>>(new Set())
-
-  // Check XMTP status for a user
+  // Check XMTP status for a user (identity service handles caching and deduping)
   const checkXmtpStatus = useCallback(async (user: BlueskyProfile) => {
-    // Skip if already in cache
-    if (xmtpStatusCache.has(user.did)) {
-      const cachedValue = xmtpStatusCache.get(user.did)!
-      setXmtpStatus(prev => {
-        if (prev.get(user.did) === cachedValue) return prev
-        return new Map(prev).set(user.did, cachedValue)
-      })
-      return
-    }
-
-    // Skip if already checking
-    if (checkingRef.current.has(user.did)) {
-      return
-    }
-
-    checkingRef.current.add(user.did)
-    setXmtpStatus(prev => new Map(prev).set(user.did, 'checking'))
-
-    try {
-      // Step 1: Check if user has published an XMTP record
-      const result = await identityService.lookupInboxForDid(user.did)
-
-      if (!result.found) {
-        // No record = not on XMTP (or lookup failed), no need to verify anything
-        const status: XmtpUserStatus = 'not-on-chat'
-        if (xmtpStatusCache.size >= XMTP_STATUS_CACHE_MAX_SIZE) {
-          const oldestKey = xmtpStatusCache.keys().next().value
-          if (oldestKey) xmtpStatusCache.delete(oldestKey)
-        }
-        xmtpStatusCache.set(user.did, status)
-        setXmtpStatus(prev => new Map(prev).set(user.did, status))
-        return
+    // Show checking state immediately
+    setXmtpStatus(prev => {
+      if (prev.get(user.did) === 'checking' || prev.get(user.did) === 'verified' || prev.get(user.did) === 'not-on-chat') {
+        return prev // Don't flash "checking" if we already have a status
       }
+      return new Map(prev).set(user.did, 'checking')
+    })
 
-      // Step 2: User is on XMTP - now verify their signature
-      // (don't trust local cache - signature could have changed)
-      const isValid = await identityService.verifyIdentityBinding(
-        result.inboxId,
-        user.did,
-        result.verificationSignature
-      )
-      const status: XmtpUserStatus = isValid ? 'verified' : 'unverified'
-
-      if (xmtpStatusCache.size >= XMTP_STATUS_CACHE_MAX_SIZE) {
-        const oldestKey = xmtpStatusCache.keys().next().value
-        if (oldestKey) xmtpStatusCache.delete(oldestKey)
-      }
-      xmtpStatusCache.set(user.did, status)
-      setXmtpStatus(prev => new Map(prev).set(user.did, status))
-    } finally {
-      checkingRef.current.delete(user.did)
-    }
+    const status = await identityService.checkXmtpStatus(user.did)
+    setXmtpStatus(prev => new Map(prev).set(user.did, status))
   }, [])
 
   // Load following and followers on mount
@@ -153,15 +99,21 @@ export function NewConversationProviderBridge({ children, onClose }: NewConversa
   const selectUser = useCallback((user: BlueskyProfile) => {
     const status = xmtpStatus.get(user.did)
     const isAlreadySelected = selectedUsers.some((u) => u.did === user.did)
-    const canMessage = status === 'verified' || status === 'unverified'
+    const canMessage = status === 'verified'
 
     if (!isAlreadySelected && !canMessage) return
 
     if (mode === 'dm') {
       // Check if we already have a DM with this user
-      const existingConv = conversations.find(
-        (c) => !c.isGroup && c.peerProfile?.did === user.did
-      )
+      // Match by DID if profile is populated, or by inbox ID as fallback
+      // (handles case where conversation exists but peerProfile wasn't resolved)
+      const userInboxId = identityService.getInboxIdFromDid(user.did)
+      const existingConv = conversations.find((c) => {
+        if (c.isGroup) return false
+        if (c.peerProfile?.did === user.did) return true
+        if (userInboxId && c.peerAddress === userInboxId) return true
+        return false
+      })
       if (existingConv) {
         // Navigate to existing conversation instead of starting new one
         selectConversation(existingConv.id)
@@ -252,9 +204,8 @@ export function NewConversationProviderBridge({ children, onClose }: NewConversa
   const sortedList = useMemo(() => {
     const statusPriority = (status: XmtpUserStatus | undefined): number => {
       if (status === 'verified') return 0
-      if (status === 'unverified') return 1
-      if (status === 'checking') return 2
-      return 3
+      if (status === 'checking') return 1
+      return 2
     }
     return [...currentList].sort((a, b) => {
       return statusPriority(xmtpStatus.get(a.did)) - statusPriority(xmtpStatus.get(b.did))

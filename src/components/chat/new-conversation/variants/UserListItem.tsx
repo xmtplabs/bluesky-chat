@@ -1,6 +1,5 @@
 import { useNewConversation, type XmtpUserStatus } from '../context/NewConversationContext'
 import { Avatar } from '../../../shared/Avatar'
-import { StatusBadge } from '../shared/StatusBadge'
 import type { BlueskyProfile } from '../../../../types'
 
 interface UserListItemProps {
@@ -16,7 +15,7 @@ export function UserListItem({ user }: UserListItemProps) {
 
   const isSelected = selectedUsers.some((u) => u.did === user.did)
   const status = xmtpStatus.get(user.did)
-  const canMessage = status === 'verified' || status === 'unverified'
+  const canMessage = status === 'verified'
   const isChecking = status === 'checking'
 
   return (
@@ -33,12 +32,9 @@ export function UserListItem({ user }: UserListItemProps) {
     >
       <Avatar src={user.avatar} fallback={user.displayName || user.handle} size="md" />
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5">
-          <p className="text-[14px] font-medium text-[var(--color-text-primary)] truncate">
-            {user.displayName || user.handle}
-          </p>
-          <StatusBadge status={status} />
-        </div>
+        <p className="text-[14px] font-medium text-[var(--color-text-primary)] truncate">
+          {user.displayName || user.handle}
+        </p>
         <p className="text-[12px] text-[var(--color-text-secondary)] truncate">
           @{user.handle}
         </p>

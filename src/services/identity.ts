@@ -1,11 +1,18 @@
 import type { Agent, AtpAgent } from '@atproto/api'
-import type { IdentityMapping, BlueskyProfile } from '../types'
+import type { IdentityMapping, BlueskyProfile, XmtpUserStatus } from '../types'
 import { verifyInboxOwnership } from './xmtp'
 
 const IDENTITY_STORE_KEY = 'identity-mappings'
 const INDEXED_MAPPINGS_KEY = 'jetstream-indexer-cache' // Shared inbox↔DID mappings
 const ATPROTO_COLLECTION = 'org.xmtp.inbox'
 const ATPROTO_RKEY = 'self'
+
+// Status cache configuration
+const STATUS_CACHE_MAX_SIZE = 500
+const NOT_ON_CHAT_TTL_MS = 5 * 60 * 1000 // 5 minutes - re-check "not on chat" users periodically
+const VERIFIED_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours - re-verify periodically
+
+type StatusCacheEntry = { status: XmtpUserStatus; timestamp: number }
 
 /**
  * ATProto record structure for org.xmtp.inbox
@@ -25,6 +32,10 @@ class IdentityService {
   // Reverse lookup: inboxId -> DID (single source of truth for all mappings)
   private inboxToDid: Map<string, string> = new Map()
   private didToInbox: Map<string, string> = new Map()
+  // Status cache for XMTP user status (verified/not-on-chat) with TTL
+  private statusCache: Map<string, StatusCacheEntry> = new Map()
+  // Track pending status checks to dedupe concurrent requests
+  private pendingStatusChecks: Map<string, Promise<XmtpUserStatus>> = new Map()
 
   async init(): Promise<void> {
     await this.loadMappings()
@@ -265,6 +276,11 @@ class IdentityService {
     const isValid = await this.verifyIdentityBinding(result.inboxId, did, result.verificationSignature)
     if (!isValid) {
       console.warn('Identity binding verification failed for DID:', did)
+      // Clear any stale mapping from when it was previously valid
+      const staleInbox = this.didToInbox.get(did)
+      if (staleInbox) {
+        this.unregisterIndexedMapping(did)
+      }
       return null
     }
 
@@ -313,7 +329,11 @@ class IdentityService {
 
   // Get XMTP inbox ID from Bluesky DID
   getInboxIdFromDid(blueskyDid: string): string | undefined {
-    return this.mappings.get(blueskyDid)?.xmtpInboxId
+    // Check local identity mappings first (own identity)
+    const localMapping = this.mappings.get(blueskyDid)?.xmtpInboxId
+    if (localMapping) return localMapping
+    // Fall back to indexed mappings (other users)
+    return this.didToInbox.get(blueskyDid)
   }
 
   // Get Bluesky DID from XMTP inbox ID
@@ -403,11 +423,71 @@ class IdentityService {
     await this.saveMappings()
   }
 
-  // Clear all mappings
+  /**
+   * Check XMTP status for a user with caching.
+   * Returns cached status if valid, otherwise fetches and verifies.
+   * Dedupes concurrent requests for the same DID.
+   */
+  async checkXmtpStatus(did: string): Promise<XmtpUserStatus> {
+    // Check cache first
+    const cached = this.statusCache.get(did)
+    if (cached && this.isStatusCacheValid(cached)) {
+      return cached.status
+    }
+
+    // Check for pending request (dedupe concurrent calls)
+    const pending = this.pendingStatusChecks.get(did)
+    if (pending) {
+      return pending
+    }
+
+    // Create new request
+    const request = this.fetchAndCacheStatus(did)
+    this.pendingStatusChecks.set(did, request)
+
+    try {
+      return await request
+    } finally {
+      this.pendingStatusChecks.delete(did)
+    }
+  }
+
+  private isStatusCacheValid(entry: StatusCacheEntry): boolean {
+    const age = Date.now() - entry.timestamp
+    if (entry.status === 'verified') {
+      return age < VERIFIED_TTL_MS
+    }
+    return age < NOT_ON_CHAT_TTL_MS
+  }
+
+  private async fetchAndCacheStatus(did: string): Promise<XmtpUserStatus> {
+    const inboxId = await this.resolveDidToInbox(did)
+    const status: XmtpUserStatus = inboxId ? 'verified' : 'not-on-chat'
+
+    // Evict oldest entry if at capacity
+    if (this.statusCache.size >= STATUS_CACHE_MAX_SIZE) {
+      const oldestKey = this.statusCache.keys().next().value
+      if (oldestKey) this.statusCache.delete(oldestKey)
+    }
+
+    this.statusCache.set(did, { status, timestamp: Date.now() })
+    return status
+  }
+
+  // Clear status cache (called on logout)
+  clearStatusCache(): void {
+    this.statusCache.clear()
+    this.pendingStatusChecks.clear()
+  }
+
+  // Clear all mappings and caches
   async clearAll(): Promise<void> {
     this.mappings.clear()
     this.profileCache.clear()
     this.inboxToDid.clear()
+    this.didToInbox.clear()
+    this.statusCache.clear()
+    this.pendingStatusChecks.clear()
     await this.saveMappings()
   }
 

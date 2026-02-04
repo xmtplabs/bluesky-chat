@@ -118,7 +118,7 @@ export function IdentityStatus() {
             Verification issue
           </p>
           <p className="text-[11px] text-[var(--color-text-secondary)] mt-1">
-            Others will see your profile as unverified until you update.
+            Others won't be able to message you until you update.
           </p>
           {hasWriteAccess && (
             <button

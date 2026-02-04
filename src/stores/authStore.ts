@@ -9,7 +9,6 @@ import { getOrCreatePrivateKey, createXMTPSigner, getAddressFromPrivateKey, sign
 import { useProfileStore } from './profileStore'
 import { useChatStore } from './chatStore'
 import { useUIStore } from './uiStore'
-import { clearXmtpStatusCache } from '../components/chat/NewConversation'
 
 /**
  * Onboarding phase tracked per-DID to enable backup prompts for new users.
@@ -494,7 +493,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       await blueskyService.logout()
       await xmtpService.disconnect()
       indexerService.disconnect()
-      clearXmtpStatusCache()
+      identityService.clearStatusCache()
 
       // Reset all stores
       useUIStore.getState().reset()

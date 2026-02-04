@@ -1,10 +1,10 @@
 import { createSafeContext } from '../../../../lib/context/createSafeContext'
 import type { ContextValue } from '../../../../lib/context/types'
-import type { BlueskyProfile } from '../../../../types'
+import type { BlueskyProfile, XmtpUserStatus } from '../../../../types'
 
 export type ConversationMode = 'dm' | 'group'
 export type ListMode = 'following' | 'followers'
-export type XmtpUserStatus = 'checking' | 'verified' | 'unverified' | 'not-on-chat'
+export type { XmtpUserStatus }
 
 export interface NewConversationState {
   mode: ConversationMode
