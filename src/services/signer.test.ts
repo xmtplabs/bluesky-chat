@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { mockElectronAPI } from '../test/setup'
+import { mockPlatformAPI } from '../test/setup'
 import { IdentifierKind } from '@xmtp/browser-sdk'
 
 // Mock viem before importing signer
@@ -25,24 +25,24 @@ describe('Signer Service', () => {
   describe('getOrCreatePrivateKey', () => {
     it('should return existing key from secure storage', async () => {
       const existingKey = '0xexistingkey1234567890abcdef1234567890abcdef1234567890abcdef12345678'
-      mockElectronAPI.secureRetrieve.mockResolvedValueOnce(existingKey)
+      vi.mocked(mockPlatformAPI.secureRetrieve).mockResolvedValueOnce(existingKey)
 
       const { getOrCreatePrivateKey } = await import('./signer')
       const key = await getOrCreatePrivateKey(TEST_DID)
 
       expect(key).toBe(existingKey)
-      expect(mockElectronAPI.secureRetrieve).toHaveBeenCalledWith(`xmtp-wallet-key-${TEST_DID}`)
-      expect(mockElectronAPI.secureStore).not.toHaveBeenCalled()
+      expect(mockPlatformAPI.secureRetrieve).toHaveBeenCalledWith(`xmtp-wallet-key-${TEST_DID}`)
+      expect(mockPlatformAPI.secureStore).not.toHaveBeenCalled()
     })
 
     it('should generate and store new key if none exists', async () => {
-      mockElectronAPI.secureRetrieve.mockResolvedValueOnce(null)
+      vi.mocked(mockPlatformAPI.secureRetrieve).mockResolvedValueOnce(null)
 
       const { getOrCreatePrivateKey } = await import('./signer')
       const key = await getOrCreatePrivateKey(TEST_DID)
 
       expect(key).toBe('0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890')
-      expect(mockElectronAPI.secureStore).toHaveBeenCalledWith(
+      expect(mockPlatformAPI.secureStore).toHaveBeenCalledWith(
         `xmtp-wallet-key-${TEST_DID}`,
         '0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890'
       )
@@ -52,14 +52,14 @@ describe('Signer Service', () => {
       const did1 = 'did:plc:user1'
       const did2 = 'did:plc:user2'
 
-      mockElectronAPI.secureRetrieve.mockResolvedValue(null)
+      vi.mocked(mockPlatformAPI.secureRetrieve).mockResolvedValue(null)
 
       const { getOrCreatePrivateKey } = await import('./signer')
       await getOrCreatePrivateKey(did1)
       await getOrCreatePrivateKey(did2)
 
-      expect(mockElectronAPI.secureRetrieve).toHaveBeenCalledWith(`xmtp-wallet-key-${did1}`)
-      expect(mockElectronAPI.secureRetrieve).toHaveBeenCalledWith(`xmtp-wallet-key-${did2}`)
+      expect(mockPlatformAPI.secureRetrieve).toHaveBeenCalledWith(`xmtp-wallet-key-${did1}`)
+      expect(mockPlatformAPI.secureRetrieve).toHaveBeenCalledWith(`xmtp-wallet-key-${did2}`)
     })
   })
 
@@ -90,6 +90,45 @@ describe('Signer Service', () => {
       const address = getAddressFromPrivateKey('0xtest1234567890abcdef1234567890abcdef1234567890abcdef1234567890')
 
       expect(address).toBe('0x1234567890abcdef1234567890abcdef12345678')
+    })
+  })
+
+  describe('clearPrivateKey', () => {
+    it('should delete key from secure storage', async () => {
+      const { clearPrivateKey } = await import('./signer')
+      await clearPrivateKey(TEST_DID)
+
+      expect(mockPlatformAPI.secureDelete).toHaveBeenCalledWith(`xmtp-wallet-key-${TEST_DID}`)
+    })
+  })
+
+  describe('hasExistingKey', () => {
+    it('should return true when key exists', async () => {
+      vi.mocked(mockPlatformAPI.secureRetrieve).mockResolvedValueOnce('some-key')
+
+      const { hasExistingKey } = await import('./signer')
+      const result = await hasExistingKey(TEST_DID)
+
+      expect(result).toBe(true)
+      expect(mockPlatformAPI.secureRetrieve).toHaveBeenCalledWith(`xmtp-wallet-key-${TEST_DID}`)
+    })
+
+    it('should return false when key does not exist', async () => {
+      vi.mocked(mockPlatformAPI.secureRetrieve).mockResolvedValueOnce(null)
+
+      const { hasExistingKey } = await import('./signer')
+      const result = await hasExistingKey(TEST_DID)
+
+      expect(result).toBe(false)
+    })
+
+    it('should return false on error', async () => {
+      vi.mocked(mockPlatformAPI.secureRetrieve).mockRejectedValueOnce(new Error('Storage error'))
+
+      const { hasExistingKey } = await import('./signer')
+      const result = await hasExistingKey(TEST_DID)
+
+      expect(result).toBe(false)
     })
   })
 })

@@ -44,8 +44,11 @@ export default defineConfig({
       }
     },
     optimizeDeps: {
-      // XMTP browser SDK uses web workers that Vite's optimizer can't handle
-      exclude: ['@xmtp/browser-sdk']
+      // XMTP browser SDK uses web workers and WASM that Vite's optimizer can't handle
+      exclude: ['@xmtp/browser-sdk', '@xmtp/wasm-bindings']
+    },
+    worker: {
+      format: 'es'
     }
   }
 })

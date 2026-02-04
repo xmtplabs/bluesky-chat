@@ -9,12 +9,13 @@
 import { Client, type Signer, IdentifierKind } from '@xmtp/browser-sdk'
 import { privateKeyToAccount } from 'viem/accounts'
 import { toBytes, type Hex } from 'viem'
+import { platform } from '../platform'
 
 const WALLET_KEY = 'xmtp-wallet-private-key'
 const ENV = 'production' as const
 
 async function getPrivateKey(): Promise<Hex | null> {
-  const key = await window.electronAPI.secureRetrieve(WALLET_KEY)
+  const key = await platform.secureRetrieve(WALLET_KEY)
   return key as Hex | null
 }
 

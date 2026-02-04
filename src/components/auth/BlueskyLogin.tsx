@@ -62,7 +62,7 @@ export function BlueskyLogin() {
                     autoComplete="username"
                     className="flex-1 px-4 py-3 bg-transparent text-[16px] text-[var(--color-text-primary)] placeholder-[var(--color-text-tertiary)] focus:outline-none"
                   />
-                  <span className="px-4 py-3 text-[16px] text-[var(--color-text-tertiary)] select-none bg-[var(--color-surface-secondary)] border-l border-[var(--color-border)]">
+                  <span className="shrink-0 px-4 py-3 text-[16px] text-[var(--color-text-tertiary)] select-none bg-[var(--color-surface-secondary)] border-l border-[var(--color-border)]">
                     .bsky.social
                   </span>
                 </div>

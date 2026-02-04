@@ -5,7 +5,7 @@ import { blueskyService } from '../../../services/bluesky'
 import { identityService } from '../../../services/identity'
 import { xmtpService } from '../../../services/xmtp'
 import { clearPrivateKey } from '../../../services/signer'
-import type { BuildMode } from '../../../types'
+import { platform, type BuildMode } from '../../../platform'
 
 function truncateId(id: string, chars = 8): string {
   if (id.length <= chars * 2 + 3) return id
@@ -33,10 +33,10 @@ export function DevTools() {
   const hasWriteAccess = blueskyService.hasRepoWriteAccess()
   const onboardingPhase = blueskyProfile?.did ? getPhase(blueskyProfile.did) : { phase: 'fresh' as const }
 
-  // Fetch build mode from main process
+  // Fetch build mode from platform
   useEffect(() => {
-    window.electronAPI?.getBuildMode?.().then(setBuildMode).catch(() => {
-      // Fallback for non-Electron environments (e.g., tests)
+    platform.getBuildMode().then(setBuildMode).catch(() => {
+      // Fallback for non-platform environments (e.g., tests)
       setBuildMode('development')
     })
   }, [])

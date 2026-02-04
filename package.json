@@ -2,7 +2,7 @@
   "name": "bluesky-chat",
   "version": "1.0.3-beta.0",
   "type": "module",
-  "description": "Electron desktop chat app with Bluesky identity and XMTP encryption",
+  "description": "Desktop chat app with Bluesky identity and XMTP encryption",
   "author": "XMTP Labs <info@xmtp.org>",
   "main": "./out/main/index.js",
   "scripts": {
@@ -22,13 +22,20 @@
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "clean": "rm -rf node_modules out dist"
+    "clean": "rm -rf node_modules out dist",
+    "vite:dev": "vite",
+    "vite:build": "vite build",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
   },
   "dependencies": {
     "@atproto/api": "0.15.5",
     "@atproto/oauth-client-browser": "^0.3.9",
     "@atproto/oauth-types": "^0.6.2",
+    "@cloudworxx/tauri-plugin-mac-rounded-corners": "^1.1.1",
     "@tanstack/react-virtual": "^3.13.18",
+    "@tauri-apps/api": "^2",
     "@xmtp/browser-sdk": "6.2.0",
     "@xmtp/wasm-bindings": "^1.9.1",
     "react": "^19.0.0",
@@ -41,6 +48,7 @@
     "@electron-toolkit/tsconfig": "^1.0.1",
     "@electron-toolkit/utils": "^3.0.0",
     "@tailwindcss/vite": "^4.1.18",
+    "@tauri-apps/cli": "^2",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^22.13.0",

@@ -33,3 +33,8 @@ npm-debug.log*
 
 # Test coverage
 coverage/
+
+# Rust/Tauri build artifacts
+**/target/
+src-tauri/gen/
+tauri-wasm-spike/

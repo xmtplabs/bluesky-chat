@@ -14,6 +14,7 @@ import {
 import {
   verifySignedWithPublicKey as verifySignedWithPublicKeyBinding
 } from '@xmtp/wasm-bindings'
+import { platform } from '../platform'
 
 // Use production network for built distributions, dev for development
 const XMTP_ENV = import.meta.env.MODE === 'production' ? 'production' : 'dev'
@@ -24,10 +25,10 @@ let verboseLogging = import.meta.env.DEV // Default to true in dev, will be upda
 // Initialize verbose logging flag from build mode
 async function initVerboseLogging(): Promise<void> {
   try {
-    const buildMode = await window.electronAPI?.getBuildMode?.()
+    const buildMode = await platform.getBuildMode()
     verboseLogging = buildMode !== 'production'
   } catch {
-    // Fall back to DEV check if electronAPI not available
+    // Fall back to DEV check if platform API not available
     verboseLogging = import.meta.env.DEV
   }
 }

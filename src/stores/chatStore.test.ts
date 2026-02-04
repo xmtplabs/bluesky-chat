@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { mockElectronAPI } from '../test/setup'
+import { mockPlatformAPI } from '../test/setup'
 
 // Mock the services - define mocks inside the factory
 vi.mock('../services/xmtp', () => ({
@@ -268,7 +268,7 @@ describe('ChatStore', () => {
       expect(state.conversations[0].unreadCount).toBe(0)
       expect(state.conversations[1].unreadCount).toBe(3)
       expect(state.unreadTotal).toBe(3)
-      expect(mockElectronAPI.setBadgeCount).toHaveBeenCalledWith(3)
+      expect(mockPlatformAPI.setBadgeCount).toHaveBeenCalledWith(3)
     })
   })
 

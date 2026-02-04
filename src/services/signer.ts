@@ -3,6 +3,7 @@ import { toBytes, type Hex } from 'viem'
 import type { Signer, Identifier, Client } from '@xmtp/browser-sdk'
 import { IdentifierKind } from '@xmtp/browser-sdk'
 import { verboseLog, verboseWarn } from './xmtp'
+import { platform } from '../platform'
 
 const WALLET_KEY_PREFIX = 'xmtp-wallet-key-'
 
@@ -22,7 +23,7 @@ export async function getOrCreatePrivateKey(did: string): Promise<Hex> {
   const storageKey = getStorageKey(did)
 
   // Try to retrieve existing key for this DID
-  const existingKey = await window.electronAPI.secureRetrieve(storageKey)
+  const existingKey = await platform.secureRetrieve(storageKey)
 
   if (existingKey) {
     const address = getAddressFromPrivateKey(existingKey as Hex)
@@ -39,7 +40,7 @@ export async function getOrCreatePrivateKey(did: string): Promise<Hex> {
   verboseWarn('   New Address:', address)
 
   // Store securely with DID-specific key
-  await window.electronAPI.secureStore(storageKey, newKey)
+  await platform.secureStore(storageKey, newKey)
 
   return newKey
 }
@@ -69,7 +70,7 @@ export function getAddressFromPrivateKey(privateKey: Hex): string {
 
 export async function exportPrivateKey(did: string): Promise<Hex | null> {
   const storageKey = getStorageKey(did)
-  const key = await window.electronAPI.secureRetrieve(storageKey)
+  const key = await platform.secureRetrieve(storageKey)
   return key as Hex | null
 }
 
@@ -82,12 +83,12 @@ export async function importPrivateKey(did: string, privateKey: Hex): Promise<vo
   }
 
   const storageKey = getStorageKey(did)
-  await window.electronAPI.secureStore(storageKey, privateKey)
+  await platform.secureStore(storageKey, privateKey)
 }
 
 export async function clearPrivateKey(did: string): Promise<void> {
   const storageKey = getStorageKey(did)
-  await window.electronAPI.secureDelete(storageKey)
+  await platform.secureDelete(storageKey)
 }
 
 /**
@@ -96,7 +97,7 @@ export async function clearPrivateKey(did: string): Promise<void> {
 export async function hasExistingKey(did: string): Promise<boolean> {
   try {
     const storageKey = getStorageKey(did)
-    const existingKey = await window.electronAPI.secureRetrieve(storageKey)
+    const existingKey = await platform.secureRetrieve(storageKey)
     return existingKey !== null
   } catch (err) {
     console.error('Failed to check for existing key:', err)

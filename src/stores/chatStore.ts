@@ -4,6 +4,7 @@ import type { ChatConversation, ChatMessage, BlueskyProfile } from '../types'
 import { xmtpService } from '../services/xmtp'
 import { identityService } from '../services/identity'
 import { blueskyService } from '../services/bluesky'
+import { platform } from '../platform'
 
 // Module-level timeout for conversation stream debouncing (cleared on stop)
 let conversationReloadTimeout: ReturnType<typeof setTimeout> | null = null
@@ -620,13 +621,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
           const senderName =
             conv?.peerProfile?.displayName || conv?.peerProfile?.handle || 'New message'
 
-          if (window.electronAPI?.showNotification) {
-            window.electronAPI.showNotification(senderName, chatMessage.content)
-          }
+          platform.showNotification(senderName, chatMessage.content)
         }
-        if (window.electronAPI?.setBadgeCount) {
-          window.electronAPI.setBadgeCount(unreadTotal)
-        }
+        platform.setBadgeCount(unreadTotal)
       })
     } catch (error) {
       console.error('Failed to start message stream:', error)
@@ -665,9 +662,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     )
     const unreadTotal = conversations.reduce((sum, c) => sum + c.unreadCount, 0)
     set({ conversations, unreadTotal })
-    if (window.electronAPI?.setBadgeCount) {
-      window.electronAPI.setBadgeCount(unreadTotal)
-    }
+    platform.setBadgeCount(unreadTotal)
   },
 
   acceptRequest: (conversationId: string) => {

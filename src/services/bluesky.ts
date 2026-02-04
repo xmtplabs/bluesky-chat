@@ -2,6 +2,7 @@ import { Agent, AtpAgent, type AppBskyActorDefs } from '@atproto/api'
 import { BrowserOAuthClient, type OAuthSession } from '@atproto/oauth-client-browser'
 import { buildAtprotoLoopbackClientId } from '@atproto/oauth-types'
 import type { BlueskyProfile } from '../types'
+import { platform } from '../platform'
 
 class BlueskyService {
   private oauthClient: BrowserOAuthClient | null = null
@@ -90,11 +91,8 @@ class BlueskyService {
       )
     }
 
-    // Open OAuth window in Electron
-    if (!window.electronAPI?.openOAuthWindow) {
-      throw new Error('OAuth requires Electron. Please run the app with "npm run dev".')
-    }
-    const result = await window.electronAPI.openOAuthWindow(authUrl.toString())
+    // Open OAuth window via platform API
+    const result = await platform.openOAuthWindow(authUrl.toString())
 
     if (!result) {
       throw new Error('OAuth authorization cancelled')
