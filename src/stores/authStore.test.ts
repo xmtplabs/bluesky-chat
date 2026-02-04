@@ -22,7 +22,8 @@ vi.mock('../services/xmtp', () => ({
       signWithInstallationKey: vi.fn().mockReturnValue(new Uint8Array([1, 2, 3]))
     }),
     disconnect: vi.fn().mockResolvedValue(undefined)
-  }
+  },
+  logStartupDiagnostics: vi.fn()
 }))
 
 vi.mock('../services/identity', () => ({
