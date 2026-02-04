@@ -127,7 +127,7 @@ export function IdentityMismatchBanner() {
             Verification issue
           </p>
           <p className="text-[12px] text-[var(--color-text-secondary)] mt-0.5 leading-snug">
-            Others will see your profile as unverified.
+            Others won't be able to message you.
           </p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">

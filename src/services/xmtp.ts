@@ -860,6 +860,14 @@ function base64ToUint8Array(base64: string): Uint8Array {
 }
 
 /**
+ * Result of inbox ownership verification.
+ * - { verified: true } - Signature verified by an installation
+ * - { verified: false, definitive: true } - Signature definitively invalid (inbox found, no installation verified it)
+ * - { verified: false, definitive: false } - Couldn't verify due to network/other errors
+ */
+export type VerifyInboxOwnershipResult = { verified: true } | { verified: false; definitive: boolean }
+
+/**
  * Verify that a signature was created by an installation key belonging to the given inbox.
  * Used to verify the cryptographic binding between a Bluesky DID and XMTP inbox.
  * Uses static verification - no client instance required.
@@ -868,14 +876,15 @@ export async function verifyInboxOwnership(
   inboxId: string,
   did: string,
   signature: string
-): Promise<boolean> {
+): Promise<VerifyInboxOwnershipResult> {
   verboseLog('Verifying inbox ownership:', { inboxId: inboxId.slice(0, 16) + '...', did })
 
   try {
     const inboxStates = await Client.fetchInboxStates([inboxId], XMTP_ENV)
     if (!inboxStates || inboxStates.length === 0) {
+      // Inbox doesn't exist - this is a definitive failure
       verboseWarn('No inbox state found for inboxId:', inboxId.slice(0, 16) + '...')
-      return false
+      return { verified: false, definitive: true }
     }
 
     const inboxState = inboxStates[0]
@@ -889,15 +898,18 @@ export async function verifyInboxOwnership(
         // Use static verification from wasm-bindings (throws on invalid)
         verifySignedWithPublicKeyBinding(did, signatureBytes, installation.bytes)
         verboseLog(`Signature verified by installation ${i}`)
-        return true
+        return { verified: true }
       } catch {
         // Signature didn't match this installation, try next
       }
     }
+    // We successfully fetched inbox state but no installation verified the signature
+    // This is a definitive verification failure
     verboseWarn('No installation could verify the signature')
+    return { verified: false, definitive: true }
   } catch (error) {
+    // Network or other error - not a definitive failure
     verboseError('Error verifying inbox ownership:', error)
+    return { verified: false, definitive: false }
   }
-
-  return false
 }

@@ -90,3 +90,6 @@ declare global {
 }
 
 export type XMTPMessage = DecodedMessage
+
+// XMTP user status for messaging eligibility
+export type XmtpUserStatus = 'checking' | 'verified' | 'not-on-chat'

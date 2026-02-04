@@ -33,8 +33,9 @@ vi.mock('../services/identity', () => ({
     linkIdentity: vi.fn().mockResolvedValue(undefined),
     publishIdentityToATProto: vi.fn().mockResolvedValue(undefined),
     lookupInboxForDid: vi.fn().mockResolvedValue({ found: false, notFound: true }),
-    verifyIdentityBinding: vi.fn().mockResolvedValue(true),
-    clearProfileCache: vi.fn()
+    verifyIdentityBinding: vi.fn().mockResolvedValue({ verified: true }),
+    clearProfileCache: vi.fn(),
+    clearStatusCache: vi.fn()
   }
 }))
 
@@ -83,11 +84,6 @@ vi.mock('./uiStore', () => ({
       reset: vi.fn()
     })
   }
-}))
-
-// Mock the clearXmtpStatusCache function
-vi.mock('../components/chat/NewConversation', () => ({
-  clearXmtpStatusCache: vi.fn()
 }))
 
 describe('AuthStore', () => {

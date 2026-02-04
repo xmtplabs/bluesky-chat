@@ -1,8 +1,5 @@
 import * as NewConversation from './new-conversation/NewConversation'
 
-// Re-export the cache clearing function for authStore
-export { clearXmtpStatusCache } from './new-conversation/NewConversation'
-
 interface NewConversationModalProps {
   onClose: () => void
 }
