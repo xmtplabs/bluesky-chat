@@ -1,4 +1,5 @@
 import { identityService } from './identity'
+import { verifyInboxOwnership } from './xmtp'
 
 const JETSTREAM_URL = 'wss://jetstream2.us-west.bsky.network/subscribe'
 
@@ -59,7 +60,9 @@ class IndexerService {
     this.ws.onmessage = (event) => {
       try {
         const evt: JetstreamEvent = JSON.parse(event.data)
-        this.handleEvent(evt)
+        this.handleEvent(evt).catch((error) => {
+          console.error('Failed to handle Jetstream event:', error)
+        })
       } catch (error) {
         console.error('Failed to parse Jetstream event:', error)
       }
@@ -92,7 +95,7 @@ class IndexerService {
     }, delay)
   }
 
-  private handleEvent(evt: JetstreamEvent): void {
+  private async handleEvent(evt: JetstreamEvent): Promise<void> {
     if (evt.kind !== 'commit' || !evt.commit) {
       return
     }
@@ -105,9 +108,19 @@ class IndexerService {
     }
 
     if (operation === 'create' || operation === 'update') {
-      if (record?.id) {
-        console.log(`Indexed org.xmtp.inbox: ${did} -> ${record.id}`)
-        identityService.registerIndexedMapping(record.id, did)
+      if (record?.id && record?.verificationSignature) {
+        const inboxId = record.id
+        const signature = record.verificationSignature
+
+        // Verify inbox ownership before accepting mapping
+        const isValid = await verifyInboxOwnership(inboxId, did, signature)
+        if (!isValid) {
+          console.warn(`Rejected unverified org.xmtp.inbox record: ${did} -> ${inboxId.slice(0, 16)}...`)
+          return
+        }
+
+        console.log(`Indexed org.xmtp.inbox: ${did} -> ${inboxId}`)
+        identityService.registerIndexedMapping(inboxId, did)
       }
     } else if (operation === 'delete') {
       identityService.unregisterIndexedMapping(did)
