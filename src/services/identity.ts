@@ -1,6 +1,6 @@
 import type { Agent, AtpAgent } from '@atproto/api'
 import type { IdentityMapping, BlueskyProfile, XmtpUserStatus } from '../types'
-import { verifyInboxOwnership } from './xmtp'
+import { verifyInboxOwnership, type VerifyInboxOwnershipResult } from './xmtp'
 
 const IDENTITY_STORE_KEY = 'identity-mappings'
 const INDEXED_MAPPINGS_KEY = 'jetstream-indexer-cache' // Shared inbox↔DID mappings
@@ -196,7 +196,11 @@ class IdentityService {
    * Verify the cryptographic binding between a Bluesky DID and XMTP inbox.
    * Uses Client.verifySignedWithPublicKey to verify the signature.
    */
-  async verifyIdentityBinding(inboxId: string, did: string, signature: string): Promise<boolean> {
+  async verifyIdentityBinding(
+    inboxId: string,
+    did: string,
+    signature: string
+  ): Promise<VerifyInboxOwnershipResult> {
     return verifyInboxOwnership(inboxId, did, signature)
   }
 
@@ -273,13 +277,15 @@ class IdentityService {
     }
 
     // Verify the signature
-    const isValid = await this.verifyIdentityBinding(result.inboxId, did, result.verificationSignature)
-    if (!isValid) {
+    const verifyResult = await this.verifyIdentityBinding(result.inboxId, did, result.verificationSignature)
+    if (!verifyResult.verified) {
       console.warn('Identity binding verification failed for DID:', did)
-      // Clear any stale mapping from when it was previously valid
-      const staleInbox = this.didToInbox.get(did)
-      if (staleInbox) {
-        this.unregisterIndexedMapping(did)
+      // Only clear cache on definitive verification failures, not network errors
+      if (verifyResult.definitive) {
+        const staleInbox = this.didToInbox.get(did)
+        if (staleInbox) {
+          this.unregisterIndexedMapping(did)
+        }
       }
       return null
     }

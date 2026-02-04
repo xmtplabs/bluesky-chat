@@ -217,27 +217,35 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           if (existingBinding.inboxId === inboxId) {
             // Inbox ID matches - verify the signature is valid
             verboseLog('Existing record matches our inbox ID - verifying signature...')
-            const isSignatureValid = await identityService.verifyIdentityBinding(
+            const verifyResult = await identityService.verifyIdentityBinding(
               existingBinding.inboxId,
               blueskyProfile.did,
               existingBinding.verificationSignature
             )
 
-            if (isSignatureValid) {
+            if (verifyResult.verified) {
               verboseLog('Signature is valid')
               set({
                 identityMismatch: false,
                 signatureInvalid: false,
                 publishedInboxId: inboxId
               })
-            } else {
-              // Signature is invalid - track this for UI
+            } else if (verifyResult.definitive) {
+              // Signature is definitively invalid - track this for UI
               verboseWarn('Published signature is invalid!')
               set({
                 identityMismatch: false,
                 signatureInvalid: true,
                 publishedInboxId: inboxId,
                 mismatchDismissed: false
+              })
+            } else {
+              // Network error - can't verify, assume valid for now
+              verboseWarn('Could not verify signature (network error)')
+              set({
+                identityMismatch: false,
+                signatureInvalid: false,
+                publishedInboxId: inboxId
               })
             }
 
@@ -465,17 +473,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
 
       // Same inbox - verify signature
-      const isValid = await identityService.verifyIdentityBinding(
+      const verifyResult = await identityService.verifyIdentityBinding(
         result.inboxId,
         blueskyProfile.did,
         result.verificationSignature
       )
 
+      // Only mark as invalid on definitive verification failures, not network errors
+      const signatureInvalid = !verifyResult.verified && verifyResult.definitive
       set({
         identityMismatch: false,
-        signatureInvalid: !isValid,
+        signatureInvalid,
         publishedInboxId: result.inboxId,
-        ...(!isValid && { mismatchDismissed: false })
+        ...(signatureInvalid && { mismatchDismissed: false })
       })
     } catch (error) {
       console.error('Failed to check identity status:', error)

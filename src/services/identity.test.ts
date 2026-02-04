@@ -3,7 +3,7 @@ import { identityService } from './identity'
 
 // Mock the xmtp module
 vi.mock('./xmtp', () => ({
-  verifyInboxOwnership: vi.fn().mockResolvedValue(true)
+  verifyInboxOwnership: vi.fn().mockResolvedValue({ verified: true })
 }))
 
 describe('IdentityService', () => {
@@ -310,16 +310,16 @@ describe('IdentityService', () => {
           })
       })
 
-      // Mock verification to fail
+      // Mock verification to fail definitively
       const { verifyInboxOwnership } = await import('./xmtp')
-      vi.mocked(verifyInboxOwnership).mockResolvedValueOnce(false)
+      vi.mocked(verifyInboxOwnership).mockResolvedValueOnce({ verified: false, definitive: true })
 
       const inboxId = await identityService.resolveDidToInbox('did:plc:fake')
 
       expect(inboxId).toBeNull()
     })
 
-    it('should clean up stale cache when signature verification fails', async () => {
+    it('should clean up stale cache when signature verification fails definitively', async () => {
       // Pre-populate cache with stale mapping
       identityService.registerIndexedMapping('inbox-compromised', 'did:plc:compromised')
       expect(identityService.getDidFromInboxId('inbox-compromised')).toBe('did:plc:compromised')
@@ -336,9 +336,9 @@ describe('IdentityService', () => {
           })
       })
 
-      // Mock verification to fail
+      // Mock verification to fail definitively
       const { verifyInboxOwnership } = await import('./xmtp')
-      vi.mocked(verifyInboxOwnership).mockResolvedValueOnce(false)
+      vi.mocked(verifyInboxOwnership).mockResolvedValueOnce({ verified: false, definitive: true })
 
       const inboxId = await identityService.resolveDidToInbox('did:plc:compromised')
 
@@ -346,6 +346,35 @@ describe('IdentityService', () => {
       // Stale mapping should be cleaned up
       expect(identityService.getDidFromInboxId('inbox-compromised')).toBeUndefined()
       expect(identityService.getInboxIdFromDid('did:plc:compromised')).toBeUndefined()
+    })
+
+    it('should preserve cache when verification fails due to network error', async () => {
+      // Pre-populate cache with valid mapping
+      identityService.registerIndexedMapping('inbox-valid', 'did:plc:valid')
+      expect(identityService.getDidFromInboxId('inbox-valid')).toBe('did:plc:valid')
+
+      // Mock fetch with valid response
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            value: {
+              id: 'inbox-valid',
+              verificationSignature: 'good-sig'
+            }
+          })
+      })
+
+      // Mock verification to fail due to network error (not definitive)
+      const { verifyInboxOwnership } = await import('./xmtp')
+      vi.mocked(verifyInboxOwnership).mockResolvedValueOnce({ verified: false, definitive: false })
+
+      const inboxId = await identityService.resolveDidToInbox('did:plc:valid')
+
+      expect(inboxId).toBeNull()
+      // Cache should be preserved despite verification failure
+      expect(identityService.getDidFromInboxId('inbox-valid')).toBe('did:plc:valid')
+      expect(identityService.getInboxIdFromDid('did:plc:valid')).toBe('inbox-valid')
     })
   })
 
