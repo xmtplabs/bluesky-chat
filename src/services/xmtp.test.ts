@@ -10,6 +10,7 @@ vi.mock('@xmtp/browser-sdk', () => {
     },
     conversations: {
       sync: vi.fn().mockResolvedValue(undefined),
+      syncAll: vi.fn().mockResolvedValue(undefined),
       list: vi.fn().mockResolvedValue([]),
       createDm: vi.fn(),
       createDmWithIdentifier: vi.fn(),
@@ -95,7 +96,7 @@ describe('XMTPService', () => {
       await xmtpService.init(createMockSigner())
       const conversations = await xmtpService.getConversations()
 
-      expect(mockClient.conversations.sync).toHaveBeenCalled()
+      expect(mockClient.conversations.syncAll).toHaveBeenCalled()
       expect(conversations).toEqual(mockConversations)
     })
   })
