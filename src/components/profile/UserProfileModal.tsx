@@ -86,9 +86,9 @@ export function UserProfileModal() {
       try {
         // Always fetch fresh from ATProto and verify signature
         // (don't trust local cache - signature could have changed)
-        const record = await identityService.lookupInboxForDid(viewingProfileDid!)
-        if (!record) {
-          // No record published
+        const result = await identityService.lookupInboxForDid(viewingProfileDid!)
+        if (!result.found) {
+          // No record published (or lookup failed)
           if (isOwnProfile && isXMTPConnected) {
             // Own profile with no published record - still "available" locally
             setXmtpStatus('available')
@@ -100,18 +100,18 @@ export function UserProfileModal() {
 
         // Verify the signature
         const isValid = await identityService.verifyIdentityBinding(
-          record.inboxId,
+          result.inboxId,
           viewingProfileDid!,
-          record.verificationSignature
+          result.verificationSignature
         )
 
         if (isValid) {
-          setInboxId(record.inboxId)
+          setInboxId(result.inboxId)
           setXmtpStatus('available')
         } else {
           // Has record but verification failed
           console.warn('Identity verification failed for', viewingProfileDid)
-          setInboxId(record.inboxId)
+          setInboxId(result.inboxId)
           setXmtpStatus('unverified')
         }
       } catch (err) {

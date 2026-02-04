@@ -282,6 +282,21 @@ describe('IdentityService', () => {
       expect(identityService.getDidFromInboxId('inbox-stale')).toBeUndefined()
     })
 
+    it('should return null but preserve cache on network error', async () => {
+      // Pre-populate cache with mapping
+      identityService.registerIndexedMapping('inbox-cached', 'did:plc:cached')
+      expect(identityService.getDidFromInboxId('inbox-cached')).toBe('did:plc:cached')
+
+      // Mock network failure
+      global.fetch = vi.fn().mockRejectedValue(new Error('Network error'))
+
+      const inboxId = await identityService.resolveDidToInbox('did:plc:cached')
+
+      expect(inboxId).toBeNull()
+      // Cache should be preserved since this was a network error, not a 404
+      expect(identityService.getDidFromInboxId('inbox-cached')).toBe('did:plc:cached')
+    })
+
     it('should return null when signature verification fails', async () => {
       // Mock fetch with valid response
       global.fetch = vi.fn().mockResolvedValue({

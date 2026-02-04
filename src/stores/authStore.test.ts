@@ -32,7 +32,7 @@ vi.mock('../services/identity', () => ({
     cacheProfile: vi.fn(),
     linkIdentity: vi.fn().mockResolvedValue(undefined),
     publishIdentityToATProto: vi.fn().mockResolvedValue(undefined),
-    lookupInboxForDid: vi.fn().mockResolvedValue(null),
+    lookupInboxForDid: vi.fn().mockResolvedValue({ found: false, notFound: true }),
     verifyIdentityBinding: vi.fn().mockResolvedValue(true),
     clearProfileCache: vi.fn()
   }

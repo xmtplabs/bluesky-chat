@@ -81,10 +81,10 @@ export function NewConversationProviderBridge({ children, onClose }: NewConversa
 
     try {
       // Step 1: Check if user has published an XMTP record
-      const record = await identityService.lookupInboxForDid(user.did)
+      const result = await identityService.lookupInboxForDid(user.did)
 
-      if (!record) {
-        // No record = not on XMTP, no need to verify anything
+      if (!result.found) {
+        // No record = not on XMTP (or lookup failed), no need to verify anything
         const status: XmtpUserStatus = 'not-on-chat'
         if (xmtpStatusCache.size >= XMTP_STATUS_CACHE_MAX_SIZE) {
           const oldestKey = xmtpStatusCache.keys().next().value
@@ -98,9 +98,9 @@ export function NewConversationProviderBridge({ children, onClose }: NewConversa
       // Step 2: User is on XMTP - now verify their signature
       // (don't trust local cache - signature could have changed)
       const isValid = await identityService.verifyIdentityBinding(
-        record.inboxId,
+        result.inboxId,
         user.did,
-        record.verificationSignature
+        result.verificationSignature
       )
       const status: XmtpUserStatus = isValid ? 'verified' : 'unverified'
 

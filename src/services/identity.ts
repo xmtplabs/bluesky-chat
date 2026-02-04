@@ -137,8 +137,17 @@ class IdentityService {
   /**
    * Lookup the XMTP inbox record for a given DID from ATProto.
    * Fetches the org.xmtp.inbox record from the user's PDS.
+   *
+   * Returns:
+   * - { found: true, inboxId, verificationSignature } on success
+   * - { found: false, notFound: true } when record doesn't exist (404)
+   * - { found: false, notFound: false } on network/other errors
    */
-  async lookupInboxForDid(did: string): Promise<{ inboxId: string; verificationSignature: string } | null> {
+  async lookupInboxForDid(
+    did: string
+  ): Promise<
+    { found: true; inboxId: string; verificationSignature: string } | { found: false; notFound: boolean }
+  > {
     try {
       // Use public API to fetch the record
       const response = await fetch(
@@ -147,9 +156,10 @@ class IdentityService {
 
       if (!response.ok) {
         if (response.status === 404) {
-          return null // Record doesn't exist
+          return { found: false, notFound: true }
         }
-        throw new Error(`Failed to fetch record: ${response.status}`)
+        console.error(`Failed to fetch record: ${response.status}`)
+        return { found: false, notFound: false }
       }
 
       const data = await response.json()
@@ -157,16 +167,17 @@ class IdentityService {
 
       if (!record.id || !record.verificationSignature) {
         console.warn('Invalid org.xmtp.inbox record:', record)
-        return null
+        return { found: false, notFound: true } // Treat invalid records as not found
       }
 
       return {
+        found: true,
         inboxId: record.id,
         verificationSignature: record.verificationSignature
       }
     } catch (error) {
       console.error('Failed to lookup inbox for DID:', error)
-      return null
+      return { found: false, notFound: false }
     }
   }
 
@@ -238,27 +249,29 @@ class IdentityService {
     }
 
     // Always fetch and verify from ATProto for other users
-    const record = await this.lookupInboxForDid(did)
-    if (!record) {
-      // User has no org.xmtp.inbox record - remove stale cache if present
-      const staleInbox = this.didToInbox.get(did)
-      if (staleInbox) {
-        this.unregisterIndexedMapping(did)
+    const result = await this.lookupInboxForDid(did)
+    if (!result.found) {
+      // Only clear cache on explicit 404 (record deleted), not on network errors
+      if (result.notFound) {
+        const staleInbox = this.didToInbox.get(did)
+        if (staleInbox) {
+          this.unregisterIndexedMapping(did)
+        }
       }
       return null
     }
 
     // Verify the signature
-    const isValid = await this.verifyIdentityBinding(record.inboxId, did, record.verificationSignature)
+    const isValid = await this.verifyIdentityBinding(result.inboxId, did, result.verificationSignature)
     if (!isValid) {
       console.warn('Identity binding verification failed for DID:', did)
       return null
     }
 
     // Update cache with verified mapping
-    this.registerIndexedMapping(record.inboxId, did)
+    this.registerIndexedMapping(result.inboxId, did)
 
-    return record.inboxId
+    return result.inboxId
   }
 
   /**
