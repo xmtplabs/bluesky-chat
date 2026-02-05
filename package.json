@@ -1,6 +1,6 @@
 {
   "name": "bluesky-chat",
-  "version": "1.0.4-beta.1",
+  "version": "1.0.4-beta.0",
   "type": "module",
   "description": "Electron desktop chat app with Bluesky identity and XMTP encryption",
   "author": "XMTP Labs <info@xmtp.org>",
@@ -34,7 +34,8 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "viem": "^2.23.5",
-    "zustand": "^5.0.3"
+    "zustand": "^5.0.3",
+    "electron-updater": "^6.3.9"
   },
   "devDependencies": {
     "@electron-toolkit/preload": "^3.0.1",

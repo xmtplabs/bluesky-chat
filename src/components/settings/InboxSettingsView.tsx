@@ -10,6 +10,7 @@ export function InboxSettingsView() {
           <Settings.IdentityStatus />
           <Settings.InboxId />
           <Settings.KeyManagement />
+          <Settings.UpdateStatus />
           <Settings.DevTools />
         </div>
         <Settings.Footer />

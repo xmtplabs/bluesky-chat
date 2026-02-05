@@ -29,6 +29,37 @@ const electronAPI: ElectronAPI = {
 
   removeOAuthCallback: () => {
     ipcRenderer.removeAllListeners('oauth-callback')
+  },
+
+  // Auto-updater
+  updaterCheck: () => ipcRenderer.invoke('updater:check'),
+  updaterDownload: () => ipcRenderer.invoke('updater:download'),
+  updaterInstall: () => ipcRenderer.invoke('updater:install'),
+  onUpdateChecking: (callback: () => void) => {
+    ipcRenderer.on('update-checking', () => callback())
+  },
+  onUpdateAvailable: (callback: (info: { version: string; releaseDate?: string; releaseNotes?: string }) => void) => {
+    ipcRenderer.on('update-available', (_, info) => callback(info))
+  },
+  onUpdateNotAvailable: (callback: () => void) => {
+    ipcRenderer.on('update-not-available', () => callback())
+  },
+  onUpdateDownloadProgress: (callback: (progress: { percent: number; bytesPerSecond: number; transferred: number; total: number }) => void) => {
+    ipcRenderer.on('update-download-progress', (_, progress) => callback(progress))
+  },
+  onUpdateDownloaded: (callback: (info: { version: string; releaseDate?: string; releaseNotes?: string }) => void) => {
+    ipcRenderer.on('update-downloaded', (_, info) => callback(info))
+  },
+  onUpdateError: (callback: (message: string) => void) => {
+    ipcRenderer.on('update-error', (_, msg) => callback(msg))
+  },
+  removeUpdateListeners: () => {
+    ipcRenderer.removeAllListeners('update-checking')
+    ipcRenderer.removeAllListeners('update-available')
+    ipcRenderer.removeAllListeners('update-not-available')
+    ipcRenderer.removeAllListeners('update-download-progress')
+    ipcRenderer.removeAllListeners('update-downloaded')
+    ipcRenderer.removeAllListeners('update-error')
   }
 }
 

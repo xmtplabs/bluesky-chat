@@ -9,6 +9,7 @@ import { UserProfileModal } from './components/profile/UserProfileModal'
 import { GroupAdminModal } from './components/chat/group-admin'
 import { IdentityMismatchBanner } from './components/auth/IdentityMismatchBanner'
 import { BackupPromptBanner } from './components/onboarding/BackupPromptBanner'
+import { UpdateBanner } from './components/updates/UpdateBanner'
 import * as Connection from './components/connection/Connection'
 
 export default function App() {
@@ -58,6 +59,7 @@ export default function App() {
       <div className="h-screen flex bg-white">
         <Sidebar />
         <main className="flex-1 flex flex-col min-w-0">
+          <UpdateBanner />
           <IdentityMismatchBanner />
           <BackupPromptBanner />
           <ChatView />
