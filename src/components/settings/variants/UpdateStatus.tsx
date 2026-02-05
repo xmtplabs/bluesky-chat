@@ -12,6 +12,7 @@ export function UpdateStatus() {
   const [appVersion, setAppVersion] = useState<string | null>(null)
   const [buildMode, setBuildMode] = useState<BuildMode | null>(null)
   const [isActionInProgress, setIsActionInProgress] = useState(false)
+  const [betaOptIn, setBetaOptIn] = useState(false)
 
   useEffect(() => {
     // Get version from package.json (injected by Vite)
@@ -21,7 +22,17 @@ export function UpdateStatus() {
     window.electronAPI?.getBuildMode?.().then(setBuildMode).catch(() => {
       setBuildMode('development')
     })
+
+    // Get beta opt-in preference
+    window.electronAPI?.updaterGetBetaOptIn?.().then(setBetaOptIn).catch(() => {
+      // Ignore errors
+    })
   }, [])
+
+  const handleBetaOptInChange = async (enabled: boolean) => {
+    setBetaOptIn(enabled)
+    await window.electronAPI?.updaterSetBetaOptIn?.(enabled)
+  }
 
   const isChecking = status === 'checking'
   const isDownloading = status === 'downloading'
@@ -119,6 +130,24 @@ export function UpdateStatus() {
             >
               {getStatusText()}
             </span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-[12px] text-[var(--color-text-tertiary)]">Beta releases</span>
+            <button
+              onClick={() => handleBetaOptInChange(!betaOptIn)}
+              className={`relative w-9 h-5 rounded-full transition-colors ${
+                betaOptIn ? 'bg-[var(--color-bsky-500)]' : 'bg-[var(--color-surface-tertiary)]'
+              }`}
+              role="switch"
+              aria-checked={betaOptIn}
+              aria-label="Opt in to beta releases"
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                  betaOptIn ? 'translate-x-4' : 'translate-x-0'
+                }`}
+              />
+            </button>
           </div>
         </div>
 

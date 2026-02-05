@@ -35,6 +35,8 @@ const electronAPI: ElectronAPI = {
   updaterCheck: () => ipcRenderer.invoke('updater:check'),
   updaterDownload: () => ipcRenderer.invoke('updater:download'),
   updaterInstall: () => ipcRenderer.send('updater:install'),
+  updaterGetBetaOptIn: () => ipcRenderer.invoke('updater:getBetaOptIn'),
+  updaterSetBetaOptIn: (enabled: boolean) => ipcRenderer.invoke('updater:setBetaOptIn', enabled),
   onUpdateChecking: (callback: () => void) => {
     ipcRenderer.on('update-checking', () => callback())
   },

@@ -100,6 +100,8 @@ export interface ElectronAPI {
   updaterCheck: () => Promise<{ success: boolean; updateInfo?: UpdateInfo; error?: string }>
   updaterDownload: () => Promise<{ success: boolean; error?: string }>
   updaterInstall: () => void
+  updaterGetBetaOptIn: () => Promise<boolean>
+  updaterSetBetaOptIn: (enabled: boolean) => Promise<{ success: boolean }>
   onUpdateChecking: (callback: () => void) => void
   onUpdateAvailable: (callback: (info: UpdateInfo) => void) => void
   onUpdateNotAvailable: (callback: () => void) => void
