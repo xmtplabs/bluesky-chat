@@ -61,6 +61,20 @@ export interface AppSettings {
 
 export type BuildMode = 'development' | 'beta' | 'production'
 
+// Update info from electron-updater
+export interface UpdateInfo {
+  version: string
+  releaseDate?: string
+  releaseNotes?: string
+}
+
+export interface UpdateProgress {
+  percent: number
+  bytesPerSecond: number
+  transferred: number
+  total: number
+}
+
 // IPC channel types
 export interface ElectronAPI {
   // Build mode
@@ -81,6 +95,18 @@ export interface ElectronAPI {
   setBadgeCount: (count: number) => void
   onOAuthCallback: (callback: (data: { code: string; state: string; iss?: string }) => void) => void
   removeOAuthCallback: () => void
+
+  // Auto-updater
+  updaterCheck: () => Promise<{ success: boolean; updateInfo?: UpdateInfo; error?: string }>
+  updaterDownload: () => Promise<{ success: boolean; error?: string }>
+  updaterInstall: () => void
+  onUpdateChecking: (callback: () => void) => void
+  onUpdateAvailable: (callback: (info: UpdateInfo) => void) => void
+  onUpdateNotAvailable: (callback: () => void) => void
+  onUpdateDownloadProgress: (callback: (progress: UpdateProgress) => void) => void
+  onUpdateDownloaded: (callback: (info: UpdateInfo) => void) => void
+  onUpdateError: (callback: (message: string) => void) => void
+  removeUpdateListeners: () => void
 }
 
 declare global {

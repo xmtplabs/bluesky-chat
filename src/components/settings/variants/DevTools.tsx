@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useSettings } from '../context/SettingsContext'
 import { useAuthStore, useOnboardingStore } from '../../../stores/authStore'
+import { useUpdaterStore } from '../../../stores/updaterStore'
 import { blueskyService } from '../../../services/bluesky'
 import { identityService } from '../../../services/identity'
 import { xmtpService } from '../../../services/xmtp'
@@ -384,6 +385,73 @@ export function DevTools() {
               <p className="text-[10px] text-[var(--color-text-tertiary)] px-1">
                 Set "restore-skipped" to test the backup prompt banner.
               </p>
+            </div>
+          </details>
+
+          {/* Auto-Update Testing */}
+          <details className="group">
+            <summary className="flex items-center gap-1.5 cursor-pointer text-[12px] font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] px-2">
+              <svg className="w-3 h-3 transition-transform group-open:rotate-90" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
+              Auto-Update (UI simulation)
+            </summary>
+            <div className="mt-2 space-y-2 px-1">
+              <p className="text-[10px] text-[var(--color-text-tertiary)] px-1">
+                Simulate update states to test banner and settings UI.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => {
+                    useUpdaterStore.setState({
+                      status: 'available',
+                      updateInfo: { version: '99.0.0', releaseDate: new Date().toISOString() },
+                      dismissed: false
+                    })
+                    actions.setSuccess('Simulated: update available')
+                  }}
+                  className="h-8 text-[11px] font-medium bg-[var(--color-bsky-500)]/15 text-[var(--color-bsky-600)] hover:brightness-95 rounded-lg transition-all"
+                >
+                  Available
+                </button>
+                <button
+                  onClick={() => {
+                    useUpdaterStore.setState({
+                      status: 'downloading',
+                      updateInfo: { version: '99.0.0' },
+                      downloadProgress: { percent: 45, bytesPerSecond: 1024000, transferred: 45000000, total: 100000000 },
+                      dismissed: false
+                    })
+                    actions.setSuccess('Simulated: downloading')
+                  }}
+                  className="h-8 text-[11px] font-medium bg-[var(--color-warning-light)] text-[var(--color-text-primary)] hover:brightness-95 rounded-lg transition-all"
+                >
+                  Downloading
+                </button>
+                <button
+                  onClick={() => {
+                    useUpdaterStore.setState({
+                      status: 'ready',
+                      updateInfo: { version: '99.0.0' },
+                      downloadProgress: null,
+                      dismissed: false
+                    })
+                    actions.setSuccess('Simulated: ready to install')
+                  }}
+                  className="h-8 text-[11px] font-medium bg-[var(--color-success-light)] text-[var(--color-success)] hover:brightness-95 rounded-lg transition-all"
+                >
+                  Ready
+                </button>
+                <button
+                  onClick={() => {
+                    useUpdaterStore.getState().reset()
+                    actions.setSuccess('Reset update state')
+                  }}
+                  className="h-8 text-[11px] font-medium bg-[var(--color-surface-secondary)] text-[var(--color-text-primary)] hover:brightness-95 rounded-lg transition-all"
+                >
+                  Reset
+                </button>
+              </div>
             </div>
           </details>
 

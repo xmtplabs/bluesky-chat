@@ -5,6 +5,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 
 const iconPath = join(__dirname, '../../build/icon.png')
 import { SecureStorage } from './services/storage'
+import { registerUpdaterHandlers, initAutoUpdater } from './services/updater'
 
 // Custom protocol scheme for consistent storage origin in packaged apps
 // Using file:// causes storage isolation issues; app:// provides a stable origin
@@ -393,7 +394,13 @@ app.whenReady().then(() => {
 
   createApplicationMenu()
   setupIpcHandlers()
+  registerUpdaterHandlers() // Register IPC handlers in all modes
   createWindow()
+
+  // Initialize auto-updater event forwarding for packaged builds only
+  if (app.isPackaged && mainWindow) {
+    initAutoUpdater(mainWindow)
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

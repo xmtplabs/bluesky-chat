@@ -2,10 +2,11 @@ import { resolve } from 'path'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import pkg from './package.json'
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [externalizeDepsPlugin({ exclude: ['electron-updater'] })],
     build: {
       rollupOptions: {
         input: {
@@ -26,6 +27,9 @@ export default defineConfig({
   },
   renderer: {
     root: '.',
+    define: {
+      __APP_VERSION__: JSON.stringify(pkg.version)
+    },
     server: {
       // Listen on 127.0.0.1 for AT Protocol OAuth loopback compatibility
       host: '127.0.0.1'

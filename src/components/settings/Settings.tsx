@@ -28,6 +28,7 @@ export { SettingsHeader as Header } from './variants/SettingsHeader'
 export { IdentityStatus } from './variants/IdentityStatus'
 export { InboxIdDisplay as InboxId } from './variants/InboxIdDisplay'
 export { KeyManagement } from './variants/KeyManagement'
+export { UpdateStatus } from './variants/UpdateStatus'
 export { SettingsFooter as Footer } from './variants/SettingsFooter'
 export { DevTools } from './variants/DevTools'
 
