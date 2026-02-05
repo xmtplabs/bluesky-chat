@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import type { Env, BulkRequest, BulkResponse, LookupResponse } from '../types'
+import type { Env, BulkRequest, BulkResponse } from '../types'
 import { getMappingsByDids, getMappingsByInboxIds } from '../services/db'
 
 const bulk = new Hono<{ Bindings: Env }>()
@@ -67,9 +67,7 @@ bulk.post('/', async (c) => {
     const response: BulkResponse = {
       mappings: mappings.map((m) => ({
         did: m.did,
-        inboxId: m.inboxId,
-        handle: m.handle,
-        verifiedAt: new Date(m.verifiedAt).toISOString()
+        inboxId: m.inboxId
       })),
       notFound
     }
@@ -93,9 +91,7 @@ bulk.post('/', async (c) => {
     const response: BulkResponse = {
       mappings: mappings.map((m) => ({
         did: m.did,
-        inboxId: m.inboxId,
-        handle: m.handle,
-        verifiedAt: new Date(m.verifiedAt).toISOString()
+        inboxId: m.inboxId
       })),
       notFound
     }

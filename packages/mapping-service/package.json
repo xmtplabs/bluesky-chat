@@ -9,6 +9,8 @@
     "db:create": "wrangler d1 create bluesky-chat-mappings",
     "db:migrate": "wrangler d1 execute bluesky-chat-mappings --file=./schema.sql",
     "db:migrate:local": "wrangler d1 execute bluesky-chat-mappings --local --file=./schema.sql",
+    "db:migration:drop-handle": "wrangler d1 execute bluesky-chat-mappings --file=./migrations/0001_drop_handle_verified_at.sql",
+    "db:migration:drop-handle:local": "wrangler d1 execute bluesky-chat-mappings --local --file=./migrations/0001_drop_handle_verified_at.sql",
     "backfill": "tsx scripts/backfill.ts",
     "test": "vitest",
     "typecheck": "tsc --noEmit"

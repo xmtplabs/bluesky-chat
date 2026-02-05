@@ -1,8 +1,7 @@
 import type { DurableObjectState, DurableObject } from '@cloudflare/workers-types'
 import type { Env } from '../types'
-import { upsertMapping, deleteMapping, updateHandle } from '../services/db'
+import { upsertMapping, deleteMapping } from '../services/db'
 import { verifyInboxOwnership } from '../services/verify'
-import { fetchHandle } from '../services/bluesky'
 
 const JETSTREAM_URL = 'wss://jetstream2.us-east.bsky.network/subscribe'
 const COLLECTION = 'org.xmtp.inbox'
@@ -38,7 +37,6 @@ interface JetstreamEvent {
  * Performance optimizations:
  * - Debounced cursor saves (every 5s or 100 events)
  * - Concurrent event processing (up to 10 parallel)
- * - Async handle fetching (non-blocking)
  * - Cursor saved after successful DB operations
  */
 export class JetstreamIndexer implements DurableObject {
@@ -270,41 +268,17 @@ export class JetstreamIndexer implements DurableObject {
         `[Jetstream] Indexing mapping: ${did} -> ${inboxId.slice(0, 16)}...`
       )
 
-      // Upsert without handle first (fast path)
       await upsertMapping(this.env.DB, {
         did,
         inboxId,
-        signature,
-        handle: null, // Will be fetched async
-        verifiedAt: Date.now()
+        signature
       })
 
       // Save cursor AFTER successful DB operation
       if (event.time_us) {
         this.scheduleCursorSave(event.time_us)
       }
-
-      // Fetch handle asynchronously (fire-and-forget)
-      this.fetchAndUpdateHandle(did)
     }
-  }
-
-  /**
-   * Fetch handle in the background and update the mapping.
-   * This is fire-and-forget to not block event processing.
-   */
-  private fetchAndUpdateHandle(did: string): void {
-    fetchHandle(did)
-      .then((handle) => {
-        if (handle) {
-          updateHandle(this.env.DB, did, handle).catch((error) => {
-            console.error(`[Jetstream] Failed to update handle for ${did}:`, error)
-          })
-        }
-      })
-      .catch((error) => {
-        console.error(`[Jetstream] Failed to fetch handle for ${did}:`, error)
-      })
   }
 
   private scheduleReconnect(): void {

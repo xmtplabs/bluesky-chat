@@ -5,19 +5,11 @@ CREATE TABLE IF NOT EXISTS mappings (
   did TEXT PRIMARY KEY,           -- Bluesky DID (e.g., did:plc:abc123)
   inbox_id TEXT NOT NULL UNIQUE,  -- XMTP inbox ID (hex string)
   signature TEXT NOT NULL,        -- Base64-encoded verification signature
-  handle TEXT,                    -- Bluesky handle (e.g., alice.bsky.social)
-  created_at INTEGER NOT NULL,    -- Unix timestamp when first created
-  verified_at INTEGER NOT NULL    -- Unix timestamp of last verification
+  created_at INTEGER NOT NULL     -- Unix timestamp when first created
 );
 
 -- Index for reverse lookup (inbox_id → DID)
 CREATE INDEX IF NOT EXISTS idx_inbox_id ON mappings(inbox_id);
-
--- Index for handle lookups
-CREATE INDEX IF NOT EXISTS idx_handle ON mappings(handle);
-
--- Index for admin stats query (ORDER BY verified_at DESC)
-CREATE INDEX IF NOT EXISTS idx_verified_at ON mappings(verified_at DESC);
 
 -- Index for admin stats query (ORDER BY created_at ASC)
 CREATE INDEX IF NOT EXISTS idx_created_at ON mappings(created_at ASC);

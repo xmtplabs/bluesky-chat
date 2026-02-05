@@ -38,9 +38,7 @@ describe('db service', () => {
         did: 'did:plc:test123',
         inbox_id: '0xabcdef',
         signature: 'base64sig',
-        handle: 'alice.bsky.social',
-        created_at: 1700000000000,
-        verified_at: 1700000000000
+        created_at: 1700000000000
       })
 
       const result = await getMappingByDid(mockDb as any, 'did:plc:test123')
@@ -49,9 +47,7 @@ describe('db service', () => {
         did: 'did:plc:test123',
         inboxId: '0xabcdef',
         signature: 'base64sig',
-        handle: 'alice.bsky.social',
-        createdAt: 1700000000000,
-        verifiedAt: 1700000000000
+        createdAt: 1700000000000
       })
     })
 
@@ -72,9 +68,7 @@ describe('db service', () => {
         did: 'did:plc:test123',
         inbox_id: '0xabcdef',
         signature: 'base64sig',
-        handle: 'bob.bsky.social',
-        created_at: 1700000000000,
-        verified_at: 1700000000000
+        created_at: 1700000000000
       })
 
       const result = await getMappingByInboxId(mockDb as any, '0xabcdef')
@@ -83,9 +77,7 @@ describe('db service', () => {
         did: 'did:plc:test123',
         inboxId: '0xabcdef',
         signature: 'base64sig',
-        handle: 'bob.bsky.social',
-        createdAt: 1700000000000,
-        verifiedAt: 1700000000000
+        createdAt: 1700000000000
       })
     })
   })
@@ -108,17 +100,13 @@ describe('db service', () => {
             did: 'did:plc:a',
             inbox_id: '0x111',
             signature: 'sig1',
-            handle: 'a.bsky.social',
-            created_at: 1700000000000,
-            verified_at: 1700000000000
+            created_at: 1700000000000
           },
           {
             did: 'did:plc:b',
             inbox_id: '0x222',
             signature: 'sig2',
-            handle: 'b.bsky.social',
-            created_at: 1700000000000,
-            verified_at: 1700000000000
+            created_at: 1700000000000
           }
         ]
       })

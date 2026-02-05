@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import type { Env } from '../types'
 import { upsertMapping, getTotalMappings } from '../services/db'
 import { verifyInboxOwnership, verifyFromATProto } from '../services/verify'
-import { fetchHandle, isValidDid } from '../services/bluesky'
+import { isValidDid } from '../services/bluesky'
 
 const admin = new Hono<{ Bindings: Env }>()
 
@@ -125,16 +125,11 @@ admin.post('/backfill', async (c) => {
         continue
       }
 
-      // Fetch handle
-      const handle = await fetchHandle(did)
-
       // Store in database
       await upsertMapping(c.env.DB, {
         did,
         inboxId: record.inboxId,
-        signature: record.signature,
-        handle,
-        verifiedAt: Date.now()
+        signature: record.signature
       })
 
       results.indexed++
@@ -156,24 +151,22 @@ admin.get('/stats', async (c) => {
 
   // Get recent mappings
   const recentResult = await c.env.DB
-    .prepare('SELECT did, handle, verified_at FROM mappings ORDER BY verified_at DESC LIMIT 10')
-    .all<{ did: string; handle: string | null; verified_at: number }>()
+    .prepare('SELECT did, created_at FROM mappings ORDER BY created_at DESC LIMIT 10')
+    .all<{ did: string; created_at: number }>()
 
   // Get oldest mappings
   const oldestResult = await c.env.DB
-    .prepare('SELECT did, handle, created_at FROM mappings ORDER BY created_at ASC LIMIT 5')
-    .all<{ did: string; handle: string | null; created_at: number }>()
+    .prepare('SELECT did, created_at FROM mappings ORDER BY created_at ASC LIMIT 5')
+    .all<{ did: string; created_at: number }>()
 
   return c.json({
     totalMappings,
     recentMappings: (recentResult.results ?? []).map((r) => ({
       did: r.did,
-      handle: r.handle,
-      verifiedAt: new Date(r.verified_at).toISOString()
+      createdAt: new Date(r.created_at).toISOString()
     })),
     oldestMappings: (oldestResult.results ?? []).map((r) => ({
       did: r.did,
-      handle: r.handle,
       createdAt: new Date(r.created_at).toISOString()
     }))
   })

@@ -24,9 +24,7 @@ lookup.get('/did/:did', async (c) => {
 
   const response: LookupResponse = {
     did: mapping.did,
-    inboxId: mapping.inboxId,
-    handle: mapping.handle,
-    verifiedAt: new Date(mapping.verifiedAt).toISOString()
+    inboxId: mapping.inboxId
   }
 
   return c.json(response)
@@ -52,9 +50,7 @@ lookup.get('/inbox/:inboxId', async (c) => {
 
   const response: LookupResponse = {
     did: mapping.did,
-    inboxId: mapping.inboxId,
-    handle: mapping.handle,
-    verifiedAt: new Date(mapping.verifiedAt).toISOString()
+    inboxId: mapping.inboxId
   }
 
   return c.json(response)

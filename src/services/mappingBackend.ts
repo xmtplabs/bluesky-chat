@@ -23,8 +23,6 @@ const MAX_BACKOFF_MS = 30_000
 interface LookupResponse {
   did: string
   inboxId: string
-  handle: string | null
-  verifiedAt: string
 }
 
 interface BulkResponse {

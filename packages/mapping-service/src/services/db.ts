@@ -6,9 +6,7 @@ function rowToMapping(row: MappingRow): Mapping {
     did: row.did,
     inboxId: row.inbox_id,
     signature: row.signature,
-    handle: row.handle,
-    createdAt: row.created_at,
-    verifiedAt: row.verified_at
+    createdAt: row.created_at
   }
 }
 
@@ -77,37 +75,18 @@ export async function upsertMapping(
 
   await db
     .prepare(
-      `INSERT INTO mappings (did, inbox_id, signature, handle, created_at, verified_at)
-       VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO mappings (did, inbox_id, signature, created_at)
+       VALUES (?, ?, ?, ?)
        ON CONFLICT (did) DO UPDATE SET
          inbox_id = excluded.inbox_id,
-         signature = excluded.signature,
-         handle = excluded.handle,
-         verified_at = excluded.verified_at`
+         signature = excluded.signature`
     )
     .bind(
       mapping.did,
       mapping.inboxId,
       mapping.signature,
-      mapping.handle ?? null,
-      createdAt,
-      mapping.verifiedAt
+      createdAt
     )
-    .run()
-}
-
-/**
- * Update just the handle for a mapping.
- * Used for async handle resolution.
- */
-export async function updateHandle(
-  db: D1Database,
-  did: string,
-  handle: string | null
-): Promise<void> {
-  await db
-    .prepare('UPDATE mappings SET handle = ? WHERE did = ?')
-    .bind(handle, did)
     .run()
 }
 
