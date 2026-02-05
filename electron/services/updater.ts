@@ -1,5 +1,7 @@
 import electronUpdater from 'electron-updater'
 import { app, BrowserWindow, ipcMain } from 'electron'
+import * as fs from 'fs'
+import * as path from 'path'
 
 const { autoUpdater } = electronUpdater
 type UpdateInfo = electronUpdater.UpdateInfo
@@ -8,6 +10,30 @@ type ProgressInfo = electronUpdater.ProgressInfo
 const CHECK_INTERVAL_MS = 60 * 60 * 1000 // 1 hour
 
 let intervalId: NodeJS.Timeout | null = null
+let isUserInitiatedCheck = false
+
+// Settings persistence
+const settingsPath = path.join(app.getPath('userData'), 'updater-settings.json')
+
+function loadBetaOptIn(): boolean {
+  try {
+    if (fs.existsSync(settingsPath)) {
+      const data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'))
+      return data.betaOptIn === true
+    }
+  } catch {
+    // Ignore errors, default to false
+  }
+  return false
+}
+
+function saveBetaOptIn(enabled: boolean): void {
+  try {
+    fs.writeFileSync(settingsPath, JSON.stringify({ betaOptIn: enabled }), 'utf-8')
+  } catch {
+    // Ignore errors
+  }
+}
 
 /**
  * Register IPC handlers for the updater.
@@ -20,10 +46,18 @@ export function registerUpdaterHandlers(): void {
       return { success: true, updateInfo: null, dev: true }
     }
     try {
+      isUserInitiatedCheck = true
       const result = await autoUpdater.checkForUpdates()
       return { success: true, updateInfo: result?.updateInfo }
     } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+      // Treat 404 (release not found) as "no update available"
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      if (message.includes('404')) {
+        return { success: true, updateInfo: null }
+      }
+      return { success: false, error: message }
+    } finally {
+      isUserInitiatedCheck = false
     }
   })
 
@@ -45,6 +79,16 @@ export function registerUpdaterHandlers(): void {
     }
     autoUpdater.quitAndInstall()
   })
+
+  ipcMain.handle('updater:getBetaOptIn', () => {
+    return loadBetaOptIn()
+  })
+
+  ipcMain.handle('updater:setBetaOptIn', (_, enabled: boolean) => {
+    saveBetaOptIn(enabled)
+    autoUpdater.allowPrerelease = enabled
+    return { success: true }
+  })
 }
 
 /**
@@ -55,8 +99,8 @@ export function initAutoUpdater(mainWindow: BrowserWindow): void {
   // Disable auto-download - let user choose when to download
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = true
-  // Allow prerelease/beta updates
-  autoUpdater.allowPrerelease = true
+  // Allow prerelease/beta updates based on user preference
+  autoUpdater.allowPrerelease = loadBetaOptIn()
 
   // Forward events to renderer
   autoUpdater.on('checking-for-update', () => {
@@ -104,7 +148,8 @@ export function initAutoUpdater(mainWindow: BrowserWindow): void {
 
   autoUpdater.on('error', (error: Error) => {
     // Only send errors for user-initiated actions, not background checks
-    if (!mainWindow?.isDestroyed()) {
+    // Also ignore 404 errors (release not found = no update available)
+    if (!mainWindow?.isDestroyed() && isUserInitiatedCheck && !error.message.includes('404')) {
       mainWindow.webContents.send('update-error', error.message)
     }
   })
