@@ -304,9 +304,10 @@ class IdentityService {
     }
 
     // Verify the signature
+    console.log(`[identity] Verifying ATProto record for ${did}: inboxId=${result.inboxId.slice(0, 16)}...`)
     const verifyResult = await this.verifyIdentityBinding(result.inboxId, did, result.verificationSignature)
     if (!verifyResult.verified) {
-      console.warn('Identity binding verification failed for DID:', did)
+      console.warn(`[identity] Verification failed for ${did}: definitive=${verifyResult.definitive}`)
       // Only clear cache on definitive verification failures, not network errors
       if (verifyResult.definitive) {
         const staleInbox = this.didToInbox.get(did)
