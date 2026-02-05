@@ -58,41 +58,53 @@ export function initAutoUpdater(mainWindow: BrowserWindow): void {
 
   // Forward events to renderer
   autoUpdater.on('checking-for-update', () => {
-    mainWindow.webContents.send('update-checking')
+    if (!mainWindow?.isDestroyed()) {
+      mainWindow.webContents.send('update-checking')
+    }
   })
 
   autoUpdater.on('update-available', (info: UpdateInfo) => {
-    mainWindow.webContents.send('update-available', {
-      version: info.version,
-      releaseDate: info.releaseDate,
-      releaseNotes: info.releaseNotes
-    })
+    if (!mainWindow?.isDestroyed()) {
+      mainWindow.webContents.send('update-available', {
+        version: info.version,
+        releaseDate: info.releaseDate,
+        releaseNotes: info.releaseNotes
+      })
+    }
   })
 
   autoUpdater.on('update-not-available', () => {
-    mainWindow.webContents.send('update-not-available')
+    if (!mainWindow?.isDestroyed()) {
+      mainWindow.webContents.send('update-not-available')
+    }
   })
 
   autoUpdater.on('download-progress', (progress: ProgressInfo) => {
-    mainWindow.webContents.send('update-download-progress', {
-      percent: progress.percent,
-      bytesPerSecond: progress.bytesPerSecond,
-      transferred: progress.transferred,
-      total: progress.total
-    })
+    if (!mainWindow?.isDestroyed()) {
+      mainWindow.webContents.send('update-download-progress', {
+        percent: progress.percent,
+        bytesPerSecond: progress.bytesPerSecond,
+        transferred: progress.transferred,
+        total: progress.total
+      })
+    }
   })
 
   autoUpdater.on('update-downloaded', (info: UpdateInfo) => {
-    mainWindow.webContents.send('update-downloaded', {
-      version: info.version,
-      releaseDate: info.releaseDate,
-      releaseNotes: info.releaseNotes
-    })
+    if (!mainWindow?.isDestroyed()) {
+      mainWindow.webContents.send('update-downloaded', {
+        version: info.version,
+        releaseDate: info.releaseDate,
+        releaseNotes: info.releaseNotes
+      })
+    }
   })
 
   autoUpdater.on('error', (error: Error) => {
     // Only send errors for user-initiated actions, not background checks
-    mainWindow.webContents.send('update-error', error.message)
+    if (!mainWindow?.isDestroyed()) {
+      mainWindow.webContents.send('update-error', error.message)
+    }
   })
 
   // Initial check (silent - errors are swallowed)
