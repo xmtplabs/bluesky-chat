@@ -96,13 +96,16 @@ export async function checkForUpdates(): Promise<void> {
 
   useUpdaterStore.getState().setStatus('checking')
 
-  try {
-    // Run check with minimum visible duration
-    const [result] = await Promise.all([
-      api.updaterCheck(),
-      new Promise(resolve => setTimeout(resolve, 800))
-    ])
+  // Run check with minimum visible duration
+  const [checkResult, _] = await Promise.allSettled([
+    api.updaterCheck(),
+    new Promise(resolve => setTimeout(resolve, 800))
+  ])
 
+  if (checkResult.status === 'rejected') {
+    useUpdaterStore.getState().setError('Failed to check for updates')
+  } else {
+    const result = checkResult.value
     if (!result.success && result.error) {
       useUpdaterStore.getState().setError(result.error)
     } else if (!result.updateInfo) {
@@ -110,8 +113,6 @@ export async function checkForUpdates(): Promise<void> {
       useUpdaterStore.getState().setStatus('idle')
     }
     // If updateInfo exists, the 'update-available' event will handle it
-  } catch {
-    useUpdaterStore.getState().setError('Failed to check for updates')
   }
 }
 
