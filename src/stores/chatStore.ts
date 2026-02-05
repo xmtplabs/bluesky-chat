@@ -252,10 +252,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
           const peerInboxId = peerMember?.inboxId
 
           if (peerInboxId) {
-            // Try to resolve inbox ID to Bluesky profile
-            const peerDid = identityService.getDidFromInboxId(peerInboxId)
+            // Try to resolve inbox ID to DID (checks local cache, then backend)
+            const peerDid = await identityService.resolveInboxToDid(peerInboxId)
             if (peerDid) {
-              // Check cache first
+              // Check profile cache first
               const cachedProfile = identityService.getCachedProfile(peerDid)
               if (cachedProfile) {
                 peerProfile = cachedProfile

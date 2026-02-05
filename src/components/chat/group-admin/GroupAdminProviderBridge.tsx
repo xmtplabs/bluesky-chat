@@ -116,9 +116,9 @@ export function GroupAdminProviderBridge({ children, groupId, onClose }: GroupAd
             role = 'admin'
           }
 
-          // Try to resolve profile
+          // Try to resolve profile (check local cache, then backend)
           let profile: BlueskyProfile | undefined
-          const did = identityService.getDidFromInboxId(member.inboxId)
+          const did = await identityService.resolveInboxToDid(member.inboxId)
           if (did) {
             profile = identityService.getCachedProfile(did) || undefined
             if (!profile) {
