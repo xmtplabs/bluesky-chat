@@ -1,0 +1,29 @@
+name = "bluesky-chat-mapping-service"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+# D1 Database binding
+[[d1_databases]]
+binding = "DB"
+database_name = "bluesky-chat-mappings"
+database_id = "YOUR_DATABASE_ID_HERE"  # Replace after running: pnpm run db:create
+
+# Durable Objects for Jetstream indexer
+[durable_objects]
+bindings = [
+  { name = "JETSTREAM_INDEXER", class_name = "JetstreamIndexer" }
+]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["JetstreamIndexer"]
+
+# Environment-specific configuration
+[env.production]
+# Production D1 database ID (set after creating)
+# d1_databases = [{ binding = "DB", database_name = "bluesky-chat-mappings", database_id = "PROD_ID" }]
+
+[env.staging]
+# Staging D1 database ID (set after creating)
+# d1_databases = [{ binding = "DB", database_name = "bluesky-chat-mappings-staging", database_id = "STAGING_ID" }]

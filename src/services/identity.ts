@@ -1,6 +1,7 @@
 import type { Agent, AtpAgent } from '@atproto/api'
 import type { IdentityMapping, BlueskyProfile, XmtpUserStatus } from '../types'
 import { verifyInboxOwnership, type VerifyInboxOwnershipResult } from './xmtp'
+import { mappingBackend } from './mappingBackend'
 
 const IDENTITY_STORE_KEY = 'identity-mappings'
 const INDEXED_MAPPINGS_KEY = 'jetstream-indexer-cache' // Shared inbox↔DID mappings
@@ -253,17 +254,40 @@ class IdentityService {
 
   /**
    * Resolve a Bluesky DID to an XMTP inbox ID.
-   * Always fetches and verifies from ATProto to ensure mapping is current.
-   * Use getInboxIdFromDid() for cached lookups (display purposes).
+   * Uses a 3-tier fallback strategy:
+   * 1. Local cache (instant, includes user's own identity)
+   * 2. Backend (fast, pre-verified global cache)
+   * 3. Direct ATProto lookup (ultimate source of truth)
+   *
+   * Use getInboxIdFromDid() for synchronous cached lookups (display purposes).
    */
   async resolveDidToInbox(did: string): Promise<string | null> {
-    // Check local identity mappings (user's own verified identity)
-    const cached = this.mappings.get(did)
-    if (cached) {
-      return cached.xmtpInboxId
+    // Tier 1: Check local caches first (instant)
+    // User's own verified identity (instant, already verified at link time)
+    const ownMapping = this.mappings.get(did)
+    if (ownMapping) {
+      return ownMapping.xmtpInboxId
+    }
+    // Note: We intentionally do NOT short-circuit on local indexed cache (didToInbox)
+    // here. That cache is for display purposes via getInboxIdFromDid(). For authoritative
+    // lookups, we must verify through backend or ATProto.
+
+    // Tier 2: Try backend service (fast, pre-verified)
+    if (mappingBackend.isAvailable()) {
+      try {
+        const backendResult = await mappingBackend.lookupByDid(did)
+        if (backendResult) {
+          // Backend already verified, update local cache
+          this.registerIndexedMapping(backendResult.inboxId, did)
+          return backendResult.inboxId
+        }
+        // Backend returned null - fall through to ATProto
+      } catch (error) {
+        console.warn('Backend lookup failed, falling back to ATProto:', error)
+      }
     }
 
-    // Always fetch and verify from ATProto for other users
+    // Tier 3: Fetch and verify from ATProto (source of truth)
     const result = await this.lookupInboxForDid(did)
     if (!result.found) {
       // Only clear cache on explicit 404 (record deleted), not on network errors
@@ -298,7 +322,9 @@ class IdentityService {
 
   /**
    * Resolve an XMTP inbox ID to a Bluesky DID.
-   * Uses local cache and indexer for reverse lookups.
+   * Uses a 2-tier fallback:
+   * 1. Local cache (instant)
+   * 2. Backend service (global cache)
    */
   async resolveInboxToDid(inboxId: string): Promise<string | null> {
     // Check local cache first
@@ -307,10 +333,103 @@ class IdentityService {
       return cached
     }
 
-    // The indexer will populate this map via Jetstream
-    // For now, return null if not in cache
-    // In production, this would query an indexer service
+    // Try backend service
+    if (mappingBackend.isAvailable()) {
+      try {
+        const backendResult = await mappingBackend.lookupByInbox(inboxId)
+        if (backendResult) {
+          // Update local cache
+          this.registerIndexedMapping(backendResult.inboxId, backendResult.did)
+          return backendResult.did
+        }
+      } catch (error) {
+        console.warn('Backend reverse lookup failed:', error)
+      }
+    }
+
     return null
+  }
+
+  /**
+   * Bulk resolve multiple DIDs to inbox IDs.
+   * More efficient than individual lookups for lists (e.g., conversation list).
+   * Returns a map of DID -> inboxId for found mappings.
+   */
+  async bulkResolveDidToInbox(dids: string[]): Promise<Map<string, string>> {
+    const results = new Map<string, string>()
+    const uncachedDids: string[] = []
+
+    // First pass: check local caches
+    for (const did of dids) {
+      // Check local identity mappings (user's own verified identity)
+      const localMapping = this.mappings.get(did)
+      if (localMapping) {
+        results.set(did, localMapping.xmtpInboxId)
+        continue
+      }
+
+      // Check indexed mappings cache
+      const indexedInbox = this.didToInbox.get(did)
+      if (indexedInbox) {
+        results.set(did, indexedInbox)
+        continue
+      }
+
+      uncachedDids.push(did)
+    }
+
+    // Second pass: bulk lookup uncached DIDs via backend
+    if (uncachedDids.length > 0 && mappingBackend.isAvailable()) {
+      try {
+        const backendResults = await mappingBackend.bulkLookupByDid(uncachedDids)
+
+        for (const mapping of backendResults.mappings) {
+          results.set(mapping.did, mapping.inboxId)
+          // Update local cache
+          this.registerIndexedMapping(mapping.inboxId, mapping.did)
+        }
+      } catch (error) {
+        console.warn('Backend bulk lookup failed:', error)
+      }
+    }
+
+    return results
+  }
+
+  /**
+   * Bulk resolve multiple inbox IDs to DIDs.
+   * Returns a map of inboxId -> DID for found mappings.
+   */
+  async bulkResolveInboxToDid(inboxIds: string[]): Promise<Map<string, string>> {
+    const results = new Map<string, string>()
+    const uncachedIds: string[] = []
+
+    // First pass: check local cache
+    for (const inboxId of inboxIds) {
+      const cachedDid = this.inboxToDid.get(inboxId)
+      if (cachedDid) {
+        results.set(inboxId, cachedDid)
+      } else {
+        uncachedIds.push(inboxId)
+      }
+    }
+
+    // Second pass: bulk lookup via backend
+    if (uncachedIds.length > 0 && mappingBackend.isAvailable()) {
+      try {
+        const backendResults = await mappingBackend.bulkLookupByInbox(uncachedIds)
+
+        for (const mapping of backendResults.mappings) {
+          results.set(mapping.inboxId, mapping.did)
+          // Update local cache
+          this.registerIndexedMapping(mapping.inboxId, mapping.did)
+        }
+      } catch (error) {
+        console.warn('Backend bulk reverse lookup failed:', error)
+      }
+    }
+
+    return results
   }
 
   // Link a Bluesky DID to an XMTP inbox ID (local cache)
