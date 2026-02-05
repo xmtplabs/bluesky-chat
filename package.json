@@ -1,6 +1,6 @@
 {
   "name": "bluesky-chat",
-  "version": "1.0.3",
+  "version": "1.0.4-beta.0",
   "type": "module",
   "description": "Electron desktop chat app with Bluesky identity and XMTP encryption",
   "author": "XMTP Labs <info@xmtp.org>",
