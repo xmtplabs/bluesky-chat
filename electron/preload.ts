@@ -34,7 +34,7 @@ const electronAPI: ElectronAPI = {
   // Auto-updater
   updaterCheck: () => ipcRenderer.invoke('updater:check'),
   updaterDownload: () => ipcRenderer.invoke('updater:download'),
-  updaterInstall: () => ipcRenderer.invoke('updater:install'),
+  updaterInstall: () => ipcRenderer.send('updater:install'),
   onUpdateChecking: (callback: () => void) => {
     ipcRenderer.on('update-checking', () => callback())
   },
