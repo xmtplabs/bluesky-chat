@@ -1,8 +1,8 @@
 import { Hono } from 'hono'
 import type { Env, RegisterResponse } from '../types'
-import { upsertMapping, getMappingByDid } from '../services/db'
+import { upsertMapping, getMappingByDid, updateHandle } from '../services/db'
 import { verifyFromATProto } from '../services/verify'
-import { isValidDid } from '../services/bluesky'
+import { isValidDid, fetchHandle } from '../services/bluesky'
 
 const register = new Hono<{ Bindings: Env }>()
 
@@ -49,15 +49,26 @@ register.post('/', async (c) => {
   const existing = await getMappingByDid(c.env.DB, body.did)
   const now = Date.now()
 
-  // Store whatever ATProto says
+  // Store whatever ATProto says (handle fetched async below)
   await upsertMapping(c.env.DB, {
     did: body.did,
     inboxId: atprotoRecord.inboxId,
     signature: atprotoRecord.signature,
-    handle: null, // Will be fetched by indexer or can be updated later
+    handle: null,
     createdAt: existing?.createdAt ?? now,
     verifiedAt: now
   })
+
+  // Fetch handle asynchronously (fire-and-forget, don't block response)
+  c.executionCtx.waitUntil(
+    fetchHandle(body.did).then((handle) => {
+      if (handle) {
+        return updateHandle(c.env.DB, body.did, handle)
+      }
+    }).catch((error) => {
+      console.error(`[register] Failed to fetch/update handle for ${body.did}:`, error)
+    })
+  )
 
   const response: RegisterResponse = {
     success: true,

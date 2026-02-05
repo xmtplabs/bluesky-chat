@@ -254,6 +254,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
               inboxId,
               signature
             )
+
+            // Register with backend to ensure it has this mapping
+            console.log('[auth] Registering existing mapping with backend for:', blueskyProfile.did)
+            mappingBackend.registerMapping({
+              did: blueskyProfile.did
+            }).then((success) => {
+              console.log('[auth] Backend registration result:', success ? 'success' : 'failed')
+            }).catch((error) => {
+              console.warn('[auth] Backend registration error (non-critical):', error)
+            })
           } else {
             // Different inbox ID - this is a conflict
             verboseWarn(
@@ -293,14 +303,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
               verboseLog('Identity published to ATProto PDS')
 
               // Register with backend service for faster lookups
+              console.log('[auth] Registering mapping with backend for:', blueskyProfile.did)
               mappingBackend.registerMapping({
                 did: blueskyProfile.did
               }).then((success) => {
-                if (success) {
-                  verboseLog('Identity registered with backend service')
-                }
-              }).catch(() => {
-                // Non-critical - backend will index from Jetstream
+                console.log('[auth] Backend registration result:', success ? 'success' : 'failed')
+              }).catch((error) => {
+                console.warn('[auth] Backend registration error (non-critical):', error)
               })
             } catch (publishError) {
               verboseWarn('Failed to publish identity to ATProto:', publishError)
@@ -385,10 +394,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       )
 
       // Register with backend service for faster lookups
+      console.log('[auth] Registering mapping with backend for:', blueskyProfile.did)
       mappingBackend.registerMapping({
         did: blueskyProfile.did
-      }).catch(() => {
-        // Non-critical - backend will index from Jetstream
+      }).then((success) => {
+        console.log('[auth] Backend registration result:', success ? 'success' : 'failed')
+      }).catch((error) => {
+        console.warn('[auth] Backend registration error (non-critical):', error)
       })
 
       // Clear mismatch/invalid state
@@ -436,10 +448,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           )
 
           // Register with backend service
+          console.log('[auth] Registering mapping with backend for:', blueskyProfile.did)
           mappingBackend.registerMapping({
             did: blueskyProfile.did
-          }).catch(() => {
-            // Non-critical
+          }).then((success) => {
+            console.log('[auth] Backend registration result:', success ? 'success' : 'failed')
+          }).catch((error) => {
+            console.warn('[auth] Backend registration error (non-critical):', error)
           })
 
           // Clear any mismatch/invalid state

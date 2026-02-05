@@ -167,7 +167,8 @@ class IdentityService {
       )
 
       if (!response.ok) {
-        if (response.status === 404) {
+        // ATProto returns 400 when collection doesn't exist in repo, 404 when record not found
+        if (response.status === 400 || response.status === 404) {
           return { found: false, notFound: true }
         }
         console.error(`Failed to fetch record: ${response.status}`)
@@ -288,6 +289,8 @@ class IdentityService {
     }
 
     // Tier 3: Fetch and verify from ATProto (source of truth)
+    // This is a fallback - if we're hitting this often, the indexer may be behind
+    console.log(`[identity] ATProto fallback for DID lookup: ${did} (backend had no record)`)
     const result = await this.lookupInboxForDid(did)
     if (!result.found) {
       // Only clear cache on explicit 404 (record deleted), not on network errors
@@ -316,6 +319,15 @@ class IdentityService {
 
     // Update cache with verified mapping
     this.registerIndexedMapping(result.inboxId, did)
+
+    // Report to backend so it can index this mapping (fire-and-forget)
+    // This helps the backend catch up on mappings Jetstream may have missed
+    console.log(`[identity] Reporting discovered mapping to backend: ${did}`)
+    mappingBackend.registerMapping({ did }).then((success) => {
+      console.log(`[identity] Backend registration result: ${success ? 'success' : 'failed'}`)
+    }).catch(() => {
+      // Non-critical - we already have the mapping locally
+    })
 
     return result.inboxId
   }
