@@ -192,12 +192,13 @@ export class JetstreamIndexer implements DurableObject {
 
   /**
    * Enqueue an event for processing with bounded concurrency.
-   * Drops oldest events if queue is full (we're a cache, can re-index from ATProto).
+   * Drops new events if queue is full to prevent cursor advancement past dropped events.
+   * Dropped events will be reprocessed on reconnection since cursor hasn't moved past them.
    */
   private enqueueEvent(event: JetstreamEvent): void {
     if (this.eventQueue.length >= MAX_QUEUE_SIZE) {
-      const dropped = this.eventQueue.shift()
-      console.warn(`[Jetstream] Queue full (${MAX_QUEUE_SIZE}), dropped event for ${dropped?.did}`)
+      console.warn(`[Jetstream] Queue full (${MAX_QUEUE_SIZE}), dropping new event for ${event.did}`)
+      return
     }
     this.eventQueue.push(event)
     this.processQueue()
