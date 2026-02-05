@@ -1,12 +1,18 @@
 import type { DurableObjectState, DurableObject } from '@cloudflare/workers-types'
 import type { Env } from '../types'
-import { upsertMapping, deleteMapping } from '../services/db'
+import { upsertMapping, deleteMapping, updateHandle } from '../services/db'
 import { verifyInboxOwnership } from '../services/verify'
+import { fetchHandle } from '../services/bluesky'
 
 const JETSTREAM_URL = 'wss://jetstream2.us-east.bsky.network/subscribe'
 const COLLECTION = 'org.xmtp.inbox'
 const RECONNECT_DELAY_MS = 5000
 const CURSOR_KEY = 'jetstream_cursor'
+
+// Performance tuning
+const CURSOR_SAVE_INTERVAL_MS = 5000 // Save cursor every 5 seconds
+const CURSOR_SAVE_EVENT_COUNT = 100 // Or every 100 events
+const MAX_CONCURRENT_EVENTS = 10 // Process up to 10 events concurrently
 
 interface JetstreamEvent {
   did: string
@@ -28,6 +34,12 @@ interface JetstreamEvent {
 /**
  * Durable Object that maintains a persistent WebSocket connection to Bluesky Jetstream.
  * Indexes all org.xmtp.inbox records automatically.
+ *
+ * Performance optimizations:
+ * - Debounced cursor saves (every 5s or 100 events)
+ * - Concurrent event processing (up to 10 parallel)
+ * - Async handle fetching (non-blocking)
+ * - Cursor saved after successful DB operations
  */
 export class JetstreamIndexer implements DurableObject {
   private state: DurableObjectState
@@ -36,12 +48,23 @@ export class JetstreamIndexer implements DurableObject {
   private isConnected = false
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null
 
+  // Cursor management
+  private lastSavedCursor: number | null = null
+  private pendingCursor: number | null = null
+  private cursorSaveTimeout: ReturnType<typeof setTimeout> | null = null
+  private eventsSinceLastSave = 0
+
+  // Concurrent processing
+  private processingCount = 0
+  private eventQueue: JetstreamEvent[] = []
+
   constructor(state: DurableObjectState, env: Env) {
     this.state = state
     this.env = env
 
     // Start connection on initialization
     this.state.blockConcurrencyWhile(async () => {
+      this.lastSavedCursor = await this.getCursor()
       await this.connect()
     })
   }
@@ -54,7 +77,10 @@ export class JetstreamIndexer implements DurableObject {
         return new Response(
           JSON.stringify({
             connected: this.isConnected,
-            cursor: await this.getCursor()
+            cursor: this.lastSavedCursor,
+            pendingCursor: this.pendingCursor,
+            queueSize: this.eventQueue.length,
+            processing: this.processingCount
           }),
           { headers: { 'Content-Type': 'application/json' } }
         )
@@ -71,11 +97,34 @@ export class JetstreamIndexer implements DurableObject {
   }
 
   private async getCursor(): Promise<number | null> {
-    return await this.state.storage.get<number>(CURSOR_KEY) ?? null
+    return (await this.state.storage.get<number>(CURSOR_KEY)) ?? null
   }
 
-  private async saveCursor(cursor: number): Promise<void> {
-    await this.state.storage.put(CURSOR_KEY, cursor)
+  private async saveCursorNow(): Promise<void> {
+    if (this.pendingCursor && this.pendingCursor !== this.lastSavedCursor) {
+      await this.state.storage.put(CURSOR_KEY, this.pendingCursor)
+      this.lastSavedCursor = this.pendingCursor
+      this.eventsSinceLastSave = 0
+    }
+  }
+
+  private scheduleCursorSave(cursor: number): void {
+    this.pendingCursor = cursor
+    this.eventsSinceLastSave++
+
+    // Save immediately if we've processed enough events
+    if (this.eventsSinceLastSave >= CURSOR_SAVE_EVENT_COUNT) {
+      this.saveCursorNow()
+      return
+    }
+
+    // Otherwise schedule a debounced save
+    if (!this.cursorSaveTimeout) {
+      this.cursorSaveTimeout = setTimeout(() => {
+        this.cursorSaveTimeout = null
+        this.saveCursorNow()
+      }, CURSOR_SAVE_INTERVAL_MS)
+    }
   }
 
   private async connect(): Promise<void> {
@@ -85,7 +134,7 @@ export class JetstreamIndexer implements DurableObject {
     }
 
     try {
-      const cursor = await this.getCursor()
+      const cursor = this.lastSavedCursor
       const params = new URLSearchParams({
         wantedCollections: COLLECTION
       })
@@ -113,14 +162,15 @@ export class JetstreamIndexer implements DurableObject {
       this.isConnected = true
     })
 
-    this.ws.addEventListener('message', async (event) => {
+    this.ws.addEventListener('message', (event) => {
       try {
-        const data = typeof event.data === 'string'
-          ? event.data
-          : new TextDecoder().decode(event.data as ArrayBuffer)
+        const data =
+          typeof event.data === 'string'
+            ? event.data
+            : new TextDecoder().decode(event.data as ArrayBuffer)
 
         const parsed = JSON.parse(data) as JetstreamEvent
-        await this.handleEvent(parsed)
+        this.enqueueEvent(parsed)
       } catch (error) {
         console.error('[Jetstream] Message parse error:', error)
       }
@@ -130,6 +180,8 @@ export class JetstreamIndexer implements DurableObject {
       console.log(`[Jetstream] Disconnected: ${event.code} ${event.reason}`)
       this.isConnected = false
       this.ws = null
+      // Save cursor before reconnecting
+      this.saveCursorNow()
       this.scheduleReconnect()
     })
 
@@ -139,12 +191,38 @@ export class JetstreamIndexer implements DurableObject {
     })
   }
 
-  private async handleEvent(event: JetstreamEvent): Promise<void> {
-    // Save cursor for resume capability
-    if (event.time_us) {
-      await this.saveCursor(event.time_us)
-    }
+  /**
+   * Enqueue an event for processing with bounded concurrency.
+   */
+  private enqueueEvent(event: JetstreamEvent): void {
+    this.eventQueue.push(event)
+    this.processQueue()
+  }
 
+  /**
+   * Process events from the queue with bounded concurrency.
+   */
+  private processQueue(): void {
+    while (
+      this.eventQueue.length > 0 &&
+      this.processingCount < MAX_CONCURRENT_EVENTS
+    ) {
+      const event = this.eventQueue.shift()!
+      this.processingCount++
+
+      this.handleEvent(event)
+        .catch((error) => {
+          console.error('[Jetstream] Event processing error:', error)
+        })
+        .finally(() => {
+          this.processingCount--
+          // Continue processing queue
+          this.processQueue()
+        })
+    }
+  }
+
+  private async handleEvent(event: JetstreamEvent): Promise<void> {
     // Only process commit events for org.xmtp.inbox
     if (event.kind !== 'commit' || !event.commit) return
     if (event.commit.collection !== COLLECTION) return
@@ -155,6 +233,10 @@ export class JetstreamIndexer implements DurableObject {
     if (operation === 'delete') {
       console.log(`[Jetstream] Deleting mapping for ${did}`)
       await deleteMapping(this.env.DB, did)
+      // Save cursor AFTER successful DB operation
+      if (event.time_us) {
+        this.scheduleCursorSave(event.time_us)
+      }
       return
     }
 
@@ -163,46 +245,66 @@ export class JetstreamIndexer implements DurableObject {
       const signature = record.verificationSignature
 
       if (!inboxId || !signature) {
-        console.warn(`[Jetstream] Invalid record for ${did}: missing id or signature`)
+        console.warn(
+          `[Jetstream] Invalid record for ${did}: missing id or signature`
+        )
         return
       }
 
-      // Verify the signature
-      const verifyResult = await verifyInboxOwnership(inboxId, did, signature, 'production')
+      // Verify the signature (format validation)
+      const verifyResult = await verifyInboxOwnership(
+        inboxId,
+        did,
+        signature,
+        'production'
+      )
 
       if (!verifyResult.verified) {
-        console.warn(`[Jetstream] Verification failed for ${did}: ${verifyResult.error}`)
+        console.warn(
+          `[Jetstream] Verification failed for ${did}: ${verifyResult.error}`
+        )
         return
       }
 
-      // Fetch handle from Bluesky
-      const handle = await this.fetchHandle(did)
+      console.log(
+        `[Jetstream] Indexing mapping: ${did} -> ${inboxId.slice(0, 16)}...`
+      )
 
-      console.log(`[Jetstream] Indexing mapping: ${did} -> ${inboxId.slice(0, 16)}...`)
-
+      // Upsert without handle first (fast path)
       await upsertMapping(this.env.DB, {
         did,
         inboxId,
         signature,
-        handle,
+        handle: null, // Will be fetched async
         verifiedAt: Date.now()
       })
+
+      // Save cursor AFTER successful DB operation
+      if (event.time_us) {
+        this.scheduleCursorSave(event.time_us)
+      }
+
+      // Fetch handle asynchronously (fire-and-forget)
+      this.fetchAndUpdateHandle(did)
     }
   }
 
-  private async fetchHandle(did: string): Promise<string | null> {
-    try {
-      const response = await fetch(
-        `https://bsky.social/xrpc/com.atproto.repo.describeRepo?repo=${encodeURIComponent(did)}`
-      )
-
-      if (!response.ok) return null
-
-      const data = (await response.json()) as { handle?: string }
-      return data.handle ?? null
-    } catch {
-      return null
-    }
+  /**
+   * Fetch handle in the background and update the mapping.
+   * This is fire-and-forget to not block event processing.
+   */
+  private fetchAndUpdateHandle(did: string): void {
+    fetchHandle(did)
+      .then((handle) => {
+        if (handle) {
+          updateHandle(this.env.DB, did, handle).catch((error) => {
+            console.error(`[Jetstream] Failed to update handle for ${did}:`, error)
+          })
+        }
+      })
+      .catch((error) => {
+        console.error(`[Jetstream] Failed to fetch handle for ${did}:`, error)
+      })
   }
 
   private scheduleReconnect(): void {

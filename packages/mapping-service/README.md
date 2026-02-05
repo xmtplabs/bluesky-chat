@@ -47,10 +47,8 @@ This service eliminates the need for each bluesky-chat client to run its own Jet
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/v1/admin/indexer/status` | GET | Get indexer connection status |
-| `/v1/admin/indexer/start` | POST | Start/initialize the indexer |
 | `/v1/admin/indexer/reconnect` | POST | Force indexer reconnection |
 | `/v1/admin/backfill` | POST | Backfill specific DIDs |
-| `/v1/admin/backfill-from-firehose` | POST | Scan repos from ATProto relay |
 | `/v1/admin/stats` | GET | Detailed database statistics |
 
 ## Deployment
@@ -95,29 +93,26 @@ wrangler secret put ADMIN_KEY
 pnpm run deploy
 ```
 
-### 6. Start the Indexer
+The Jetstream indexer starts automatically on first request. Verify it's connected:
 
 ```bash
-curl -X POST https://your-worker.workers.dev/v1/admin/indexer/start \
+curl https://your-worker.workers.dev/v1/admin/indexer/status \
   -H "X-Admin-Key: your-admin-key"
 ```
 
-### 7. Backfill Historical Data
+### 6. Backfill Known Users (Optional)
 
-The Jetstream indexer only captures new records. To backfill existing mappings:
+The Jetstream indexer captures new records automatically. To pre-populate the cache with known users:
 
 ```bash
 # Set environment variables
 export BACKEND_URL=https://your-worker.workers.dev
 export ADMIN_KEY=your-admin-key
 
-# Option A: Scan from ATProto relay (comprehensive but slow)
-pnpm backfill:relay -- --limit 100000
-
-# Option B: Backfill specific DIDs from a file
+# Backfill specific DIDs from a file (one DID per line)
 pnpm backfill -- --from-file known-users.txt
 
-# Option C: Single DID
+# Or a single DID
 pnpm backfill -- --did did:plc:xyz123
 ```
 
@@ -131,22 +126,28 @@ VITE_MAPPING_BACKEND_URL=https://your-worker.workers.dev
 ```
 
 The client implements:
-- **3-tier fallback**: Backend → Local cache → ATProto
+- **Backend → Local cache → ATProto** fallback chain
 - **Request deduplication** for concurrent lookups
 - **Exponential backoff** on rate limits (429)
 - **Circuit breaker** after repeated failures
+- **Client-side verification** of all mappings (this service is a cache, not an authority)
 
 ## Rate Limiting
 
-- **Limit**: 1000 requests/minute per IP
-- **Headers**: `X-RateLimit-Remaining`, `X-RateLimit-Reset`, `Retry-After`
-- **Backoff**: Exponential on 429 responses
+- **Public endpoints**: 1000 requests/minute per IP
+- **Admin endpoints**: 100 requests/minute per IP
+- **429 Response**: Includes `Retry-After` header
+- Uses Cloudflare's native rate limiting (global, not per-isolate)
 
-## Security
+## Security Model
 
-- **Public endpoints** are read-only or verify against ATProto
-- **Admin endpoints** require `X-Admin-Key` header matching the configured secret
-- **Register endpoint** only caches mappings that already exist on ATProto (prevents spoofing)
+**This service is a cache, not an authority.** ATProto is the source of truth.
+
+- **Clients must verify** all mappings independently before trusting them
+- **Register endpoint** only caches mappings that already exist on ATProto
+- **Public endpoints** are read-only lookups
+- **Admin endpoints** require `X-Admin-Key` header with timing-safe comparison
+- **Rate limiting** uses Cloudflare's global rate limiting to prevent abuse
 
 ## Local Development
 
@@ -173,7 +174,6 @@ pnpm test
 | `pnpm run db:create` | Create D1 database |
 | `pnpm run db:migrate` | Apply schema to remote DB |
 | `pnpm run db:migrate:local` | Apply schema to local DB |
-| `pnpm backfill` | Run backfill script |
-| `pnpm backfill:relay` | Backfill from ATProto relay |
+| `pnpm backfill` | Backfill known DIDs |
 | `pnpm test` | Run tests |
 | `pnpm typecheck` | Type check |

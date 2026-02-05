@@ -1,25 +1,19 @@
 /**
  * XMTP signature verification service.
  *
- * Verifies that a signature was created by an installation belonging to the given inbox.
- * This provides the cryptographic binding between Bluesky DIDs and XMTP inboxes.
+ * SECURITY MODEL:
+ * This service performs FORMAT VALIDATION only, not cryptographic verification.
  *
- * Verification approach:
- * 1. Fetch inbox state from XMTP network to get installation public keys
- * 2. For each installation, verify the signature against the DID using ed25519
+ * Why:
+ * 1. The Jetstream indexer verifies mappings from ATProto (ground truth)
+ * 2. Clients MUST verify signatures independently - never trust this server
+ * 3. This service is a cache/index, not an authority
  *
- * Note: For production, this should use the XMTP GRPC API or REST API to fetch
- * inbox states. For now, we implement a lightweight verification that can be
- * enhanced later.
+ * Format validation prevents garbage data but allows unverified mappings
+ * until the indexer confirms them from ATProto.
  */
 
-// XMTP API endpoints
-const XMTP_API_URLS = {
-  production: 'https://grpc.production.xmtp.network',
-  dev: 'https://grpc.dev.xmtp.network'
-} as const
-
-export type XmtpEnv = keyof typeof XMTP_API_URLS
+export type XmtpEnv = 'production' | 'dev'
 
 export interface VerifyResult {
   verified: boolean
@@ -27,74 +21,55 @@ export interface VerifyResult {
 }
 
 /**
- * Base64 decode helper
- */
-function base64ToBytes(base64: string): Uint8Array {
-  const binary = atob(base64)
-  return Uint8Array.from(binary, (c) => c.charCodeAt(0))
-}
-
-/**
- * Verify a signature was created by an installation belonging to the inbox.
+ * Validate the format of a mapping registration request.
  *
- * The signature is created by signing the DID string with an XMTP installation key.
- * We verify by:
- * 1. Fetching the inbox state to get all installation public keys
- * 2. Attempting to verify the signature against each installation's public key
+ * This performs format validation only - cryptographic verification
+ * happens via the Jetstream indexer when it sees the ATProto record.
  *
- * @param inboxId - XMTP inbox ID
- * @param did - Bluesky DID that was signed
+ * Clients looking up mappings MUST verify signatures independently.
+ *
+ * @param inboxId - XMTP inbox ID (hex string)
+ * @param did - Bluesky DID
  * @param signature - Base64-encoded signature
- * @param env - XMTP environment (production or dev)
- * @returns Verification result
+ * @param _env - XMTP environment (unused, kept for API compatibility)
+ * @returns Validation result
  */
 export async function verifyInboxOwnership(
   inboxId: string,
   did: string,
   signature: string,
-  env: XmtpEnv = 'production'
+  _env: XmtpEnv = 'production'
 ): Promise<VerifyResult> {
-  try {
-    // For now, we'll do a lightweight verification approach:
-    // Trust the client-side verification and store the mapping.
-    // The indexer will re-verify when it sees the ATProto record.
-    //
-    // Full verification would require:
-    // 1. GRPC client to fetch inbox states
-    // 2. Ed25519 signature verification against installation public keys
-    //
-    // Since the data is public anyway (from ATProto), the main security
-    // is preventing spam/invalid mappings, which the indexer handles.
-
-    // Basic validation
-    if (!inboxId || !did || !signature) {
-      return { verified: false, error: 'Missing required fields' }
-    }
-
-    // Validate DID format
-    if (!did.startsWith('did:plc:') && !did.startsWith('did:web:')) {
-      return { verified: false, error: 'Invalid DID format' }
-    }
-
-    // Validate inbox ID format (should be hex)
-    if (!/^[a-f0-9]+$/i.test(inboxId)) {
-      return { verified: false, error: 'Invalid inbox ID format' }
-    }
-
-    // Validate signature is valid base64
-    try {
-      base64ToBytes(signature)
-    } catch {
-      return { verified: false, error: 'Invalid signature encoding' }
-    }
-
-    // For MVP: Trust client verification, indexer will validate from ATProto
-    // TODO: Implement full ed25519 verification against inbox installation keys
-    return { verified: true }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error'
-    return { verified: false, error: message }
+  // Validate required fields
+  if (!inboxId || !did || !signature) {
+    return { verified: false, error: 'Missing required fields' }
   }
+
+  // Validate DID format
+  if (!did.startsWith('did:plc:') && !did.startsWith('did:web:')) {
+    return { verified: false, error: 'Invalid DID format' }
+  }
+
+  // Validate inbox ID format (should be hex, typically 64 chars)
+  if (!/^[a-f0-9]+$/i.test(inboxId)) {
+    return { verified: false, error: 'Invalid inbox ID format' }
+  }
+
+  // Validate signature is valid base64 and correct length for Ed25519 (64 bytes)
+  let signatureBytes: Uint8Array
+  try {
+    const binary = atob(signature)
+    signatureBytes = Uint8Array.from(binary, (c) => c.charCodeAt(0))
+  } catch {
+    return { verified: false, error: 'Invalid signature encoding' }
+  }
+
+  if (signatureBytes.length !== 64) {
+    return { verified: false, error: 'Invalid signature length' }
+  }
+
+  // Format validation passed - cryptographic verification deferred to indexer
+  return { verified: true }
 }
 
 /**

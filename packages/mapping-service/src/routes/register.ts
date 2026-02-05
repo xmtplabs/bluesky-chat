@@ -1,27 +1,25 @@
 import { Hono } from 'hono'
-import type { Env, RegisterRequest, RegisterResponse } from '../types'
+import type { Env, RegisterResponse } from '../types'
 import { upsertMapping, getMappingByDid } from '../services/db'
 import { verifyFromATProto } from '../services/verify'
+import { isValidDid } from '../services/bluesky'
 
 const register = new Hono<{ Bindings: Env }>()
 
 /**
  * POST /v1/register
- * Register a new DID↔InboxId mapping
+ * Register a new DID↔InboxId mapping by fetching from ATProto.
  *
- * The server re-verifies the signature before storing.
- * If the mapping already exists with the same inbox ID, it updates the verification timestamp.
+ * This is a cache - ATProto is the source of truth.
+ * The client just needs to tell us which DID to index.
  *
  * Request body:
  * {
- *   "did": "did:plc:abc123",
- *   "inboxId": "0x1234567890abcdef...",
- *   "signature": "base64-encoded-signature",
- *   "handle": "alice.bsky.social" (optional)
+ *   "did": "did:plc:abc123"
  * }
  */
 register.post('/', async (c) => {
-  let body: RegisterRequest
+  let body: { did: string }
 
   try {
     body = await c.req.json()
@@ -29,23 +27,15 @@ register.post('/', async (c) => {
     return c.json({ error: 'Invalid JSON body' }, 400)
   }
 
-  // Validate required fields
-  if (!body.did || !body.inboxId || !body.signature) {
-    return c.json({ error: 'Missing required fields: did, inboxId, signature' }, 400)
+  if (!body.did) {
+    return c.json({ error: 'Missing required field: did' }, 400)
   }
 
-  // Validate DID format
-  if (!body.did.startsWith('did:plc:') && !body.did.startsWith('did:web:')) {
+  if (!isValidDid(body.did)) {
     return c.json({ error: 'Invalid DID format' }, 400)
   }
 
-  // Validate inbox ID format (hex string)
-  if (!/^[a-f0-9]+$/i.test(body.inboxId)) {
-    return c.json({ error: 'Invalid inbox ID format' }, 400)
-  }
-
-  // Always verify against ATProto as ground truth
-  // This ensures only the DID owner can register their mapping
+  // Fetch from ATProto - the source of truth
   const atprotoRecord = await verifyFromATProto(body.did)
 
   if (!atprotoRecord) {
@@ -55,30 +45,16 @@ register.post('/', async (c) => {
     )
   }
 
-  // Verify the provided data matches what's on ATProto
-  if (atprotoRecord.inboxId !== body.inboxId) {
-    return c.json(
-      {
-        error: 'Inbox ID does not match ATProto record',
-        expected: atprotoRecord.inboxId
-      },
-      400
-    )
-  }
-
-  // Use the signature from ATProto (canonical source)
-  const signature = atprotoRecord.signature
-
-  // Check for existing mapping
+  // Check for existing mapping (to preserve createdAt)
   const existing = await getMappingByDid(c.env.DB, body.did)
   const now = Date.now()
 
-  // Upsert the mapping using ATProto-verified data
+  // Store whatever ATProto says
   await upsertMapping(c.env.DB, {
     did: body.did,
     inboxId: atprotoRecord.inboxId,
-    signature,
-    handle: body.handle ?? null,
+    signature: atprotoRecord.signature,
+    handle: null, // Will be fetched by indexer or can be updated later
     createdAt: existing?.createdAt ?? now,
     verifiedAt: now
   })
@@ -86,7 +62,7 @@ register.post('/', async (c) => {
   const response: RegisterResponse = {
     success: true,
     did: body.did,
-    inboxId: body.inboxId
+    inboxId: atprotoRecord.inboxId
   }
 
   return c.json(response, existing ? 200 : 201)

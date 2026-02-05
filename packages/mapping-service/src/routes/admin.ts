@@ -1,9 +1,30 @@
+import { timingSafeEqual } from 'node:crypto'
 import { Hono } from 'hono'
 import type { Env } from '../types'
 import { upsertMapping, getTotalMappings } from '../services/db'
 import { verifyInboxOwnership, verifyFromATProto } from '../services/verify'
+import { fetchHandle, isValidDid } from '../services/bluesky'
 
 const admin = new Hono<{ Bindings: Env }>()
+
+/**
+ * Timing-safe string comparison to prevent timing attacks.
+ * Returns true if strings are equal, false otherwise.
+ */
+function timingSafeCompare(a: string, b: string): boolean {
+  const encoder = new TextEncoder()
+  const aBytes = encoder.encode(a)
+  const bBytes = encoder.encode(b)
+
+  // Different lengths - still do constant-time comparison to avoid timing leak
+  if (aBytes.length !== bBytes.length) {
+    // Compare against itself to ensure constant time, then return false
+    timingSafeEqual(Buffer.from(aBytes), Buffer.from(aBytes))
+    return false
+  }
+
+  return timingSafeEqual(Buffer.from(aBytes), Buffer.from(bBytes))
+}
 
 // Middleware to check admin authentication
 admin.use('*', async (c, next) => {
@@ -18,12 +39,20 @@ admin.use('*', async (c, next) => {
     c.req.header('X-Admin-Key') ??
     c.req.header('Authorization')?.replace('Bearer ', '')
 
-  if (!providedKey || providedKey !== adminKey) {
+  if (!providedKey) {
+    return c.json({ error: 'Unauthorized' }, 401)
+  }
+
+  // Timing-safe comparison to prevent timing attacks
+  if (!timingSafeCompare(providedKey, adminKey)) {
     return c.json({ error: 'Unauthorized' }, 401)
   }
 
   await next()
 })
+
+// Maximum DIDs allowed per backfill request
+const MAX_BACKFILL_BATCH = 100
 
 /**
  * POST /v1/admin/backfill
@@ -50,6 +79,13 @@ admin.post('/backfill', async (c) => {
     return c.json({ error: 'dids must be a non-empty array' }, 400)
   }
 
+  if (body.dids.length > MAX_BACKFILL_BATCH) {
+    return c.json(
+      { error: `Maximum ${MAX_BACKFILL_BATCH} DIDs per request` },
+      400
+    )
+  }
+
   const results = {
     total: body.dids.length,
     indexed: 0,
@@ -59,6 +95,13 @@ admin.post('/backfill', async (c) => {
   }
 
   for (const did of body.dids) {
+    // Validate DID format before making external calls
+    if (!isValidDid(did)) {
+      results.failed++
+      results.errors.push(`${did}: invalid DID format`)
+      continue
+    }
+
     try {
       // Fetch from ATProto
       const record = await verifyFromATProto(did)
@@ -102,92 +145,6 @@ admin.post('/backfill', async (c) => {
   }
 
   return c.json(results)
-})
-
-/**
- * POST /v1/admin/backfill-from-firehose
- * Backfill by scanning repos from the ATProto relay.
- * This is a heavier operation that scans for org.xmtp.inbox records.
- *
- * Query params:
- * - limit: Max number of repos to scan (default 1000)
- * - cursor: Pagination cursor for resuming
- */
-admin.post('/backfill-from-firehose', async (c) => {
-  const limit = parseInt(c.req.query('limit') ?? '1000', 10)
-  const cursor = c.req.query('cursor')
-
-  const results = {
-    scanned: 0,
-    indexed: 0,
-    cursor: null as string | null,
-    errors: [] as string[]
-  }
-
-  try {
-    // List repos from relay
-    const params = new URLSearchParams({ limit: String(Math.min(limit, 1000)) })
-    if (cursor) params.set('cursor', cursor)
-
-    const response = await fetch(
-      `https://bsky.network/xrpc/com.atproto.sync.listRepos?${params}`
-    )
-
-    if (!response.ok) {
-      return c.json({ error: `Relay error: ${response.status}` }, 500)
-    }
-
-    const data = (await response.json()) as {
-      repos: Array<{ did: string }>
-      cursor?: string
-    }
-
-    results.cursor = data.cursor ?? null
-
-    for (const repo of data.repos) {
-      results.scanned++
-
-      try {
-        // Try to fetch org.xmtp.inbox record
-        const record = await verifyFromATProto(repo.did)
-
-        if (!record) continue
-
-        // Verify
-        const verifyResult = await verifyInboxOwnership(
-          record.inboxId,
-          repo.did,
-          record.signature,
-          'production'
-        )
-
-        if (!verifyResult.verified) continue
-
-        // Fetch handle
-        const handle = await fetchHandle(repo.did)
-
-        // Store
-        await upsertMapping(c.env.DB, {
-          did: repo.did,
-          inboxId: record.inboxId,
-          signature: record.signature,
-          handle,
-          verifiedAt: Date.now()
-        })
-
-        results.indexed++
-      } catch {
-        // Skip individual errors, continue scanning
-      }
-    }
-
-    return c.json(results)
-  } catch (error) {
-    return c.json(
-      { error: error instanceof Error ? error.message : 'Backfill failed' },
-      500
-    )
-  }
 })
 
 /**
@@ -244,28 +201,6 @@ admin.get('/indexer/status', async (c) => {
 })
 
 /**
- * POST /v1/admin/indexer/start
- * Start or initialize the Jetstream indexer.
- */
-admin.post('/indexer/start', async (c) => {
-  try {
-    const indexerId = c.env.JETSTREAM_INDEXER.idFromName('singleton')
-    const indexer = c.env.JETSTREAM_INDEXER.get(indexerId)
-
-    // Trigger the indexer by fetching its status
-    const response = await indexer.fetch(new Request('http://internal/status'))
-    const status = await response.json()
-
-    return c.json({ success: true, status })
-  } catch (error) {
-    return c.json(
-      { error: error instanceof Error ? error.message : 'Failed to start indexer' },
-      500
-    )
-  }
-})
-
-/**
  * POST /v1/admin/indexer/reconnect
  * Force the Jetstream indexer to reconnect.
  */
@@ -285,20 +220,5 @@ admin.post('/indexer/reconnect', async (c) => {
     )
   }
 })
-
-async function fetchHandle(did: string): Promise<string | null> {
-  try {
-    const response = await fetch(
-      `https://bsky.social/xrpc/com.atproto.repo.describeRepo?repo=${encodeURIComponent(did)}`
-    )
-
-    if (!response.ok) return null
-
-    const data = (await response.json()) as { handle?: string }
-    return data.handle ?? null
-  } catch {
-    return null
-  }
-}
 
 export default admin

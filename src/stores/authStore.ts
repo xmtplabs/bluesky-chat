@@ -4,7 +4,6 @@ import type { BlueskyProfile } from '../types'
 import { blueskyService } from '../services/bluesky'
 import { xmtpService, logStartupDiagnostics, verboseLog, verboseWarn, verboseGroup, verboseGroupEnd } from '../services/xmtp'
 import { identityService } from '../services/identity'
-import { indexerService } from '../services/indexer'
 import { getOrCreatePrivateKey, createXMTPSigner, getAddressFromPrivateKey, signDidWithInstallationKey, hasExistingKey } from '../services/signer'
 import { mappingBackend } from '../services/mappingBackend'
 import { useProfileStore } from './profileStore'
@@ -111,9 +110,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       // Initialize Bluesky service
       await blueskyService.init()
-
-      // Connect to Jetstream indexer for reverse lookups
-      indexerService.connect()
 
       // Check if already logged in
       if (blueskyService.isLoggedIn()) {
@@ -298,10 +294,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
               // Register with backend service for faster lookups
               mappingBackend.registerMapping({
-                did: blueskyProfile.did,
-                inboxId,
-                signature,
-                handle: blueskyProfile.handle
+                did: blueskyProfile.did
               }).then((success) => {
                 if (success) {
                   verboseLog('Identity registered with backend service')
@@ -393,10 +386,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       // Register with backend service for faster lookups
       mappingBackend.registerMapping({
-        did: blueskyProfile.did,
-        inboxId: xmtpInboxId,
-        signature,
-        handle: blueskyProfile.handle
+        did: blueskyProfile.did
       }).catch(() => {
         // Non-critical - backend will index from Jetstream
       })
@@ -447,10 +437,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
           // Register with backend service
           mappingBackend.registerMapping({
-            did: blueskyProfile.did,
-            inboxId: xmtpInboxId,
-            signature,
-            handle: blueskyProfile.handle
+            did: blueskyProfile.did
           }).catch(() => {
             // Non-critical
           })
@@ -537,7 +524,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       await blueskyService.logout()
       await xmtpService.disconnect()
-      indexerService.disconnect()
       identityService.clearStatusCache()
 
       // Reset all stores

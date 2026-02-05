@@ -1,21 +1,11 @@
-import type { Context, Next, MiddlewareHandler } from 'hono'
+import type { Context, MiddlewareHandler } from 'hono'
 import type { Env } from '../types'
 
-interface RateLimitState {
-  count: number
-  resetAt: number
-}
-
-// In-memory rate limit storage (per-isolate)
-// In production, this could use Durable Objects for global consistency
-const rateLimits = new Map<string, RateLimitState>()
-
-// Configuration
-const LIMIT_PER_MINUTE = 1000
-const WINDOW_MS = 60 * 1000 // 1 minute
-
+/**
+ * Extract client IP from request headers.
+ * Cloudflare provides the real client IP in CF-Connecting-IP header.
+ */
 function getClientIP(c: Context): string {
-  // Cloudflare provides the real client IP in CF-Connecting-IP header
   return (
     c.req.header('CF-Connecting-IP') ??
     c.req.header('X-Forwarded-For')?.split(',')[0]?.trim() ??
@@ -24,66 +14,42 @@ function getClientIP(c: Context): string {
   )
 }
 
-function cleanupOldEntries(): void {
-  const now = Date.now()
-  for (const [key, state] of rateLimits) {
-    if (state.resetAt < now) {
-      rateLimits.delete(key)
+/**
+ * Rate limiting middleware using Cloudflare's native rate limiting binding.
+ *
+ * This provides global (not per-isolate) rate limiting that cannot be bypassed
+ * by distributing requests across Worker isolates.
+ *
+ * @see https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/
+ */
+export function rateLimit(): MiddlewareHandler<{ Bindings: Env }> {
+  return async (c, next) => {
+    const clientIP = getClientIP(c)
+
+    const { success } = await c.env.RATE_LIMITER.limit({ key: clientIP })
+
+    if (!success) {
+      c.header('Retry-After', '60')
+      return c.json({ error: 'RATE_LIMITED', retryAfter: 60 }, 429)
     }
+
+    await next()
   }
 }
 
-export function rateLimit(): MiddlewareHandler<{ Bindings: Env }> {
-  // Periodic cleanup to prevent memory leaks
-  let lastCleanup = Date.now()
-
-  return async (c: Context<{ Bindings: Env }>, next: Next) => {
-    const now = Date.now()
-
-    // Cleanup old entries every 5 minutes
-    if (now - lastCleanup > 5 * 60 * 1000) {
-      cleanupOldEntries()
-      lastCleanup = now
-    }
-
+/**
+ * Stricter rate limiting for admin endpoints.
+ * Applies a lower limit (100/min vs 1000/min) to protect admin operations.
+ */
+export function adminRateLimit(): MiddlewareHandler<{ Bindings: Env }> {
+  return async (c, next) => {
     const clientIP = getClientIP(c)
-    const key = `rate:${clientIP}`
 
-    let state = rateLimits.get(key)
+    const { success } = await c.env.ADMIN_RATE_LIMITER.limit({ key: clientIP })
 
-    // Initialize or reset if window expired
-    if (!state || state.resetAt < now) {
-      state = {
-        count: 0,
-        resetAt: now + WINDOW_MS
-      }
-    }
-
-    // Increment count
-    state.count++
-    rateLimits.set(key, state)
-
-    // Calculate remaining and reset timestamp
-    const remaining = Math.max(0, LIMIT_PER_MINUTE - state.count)
-    const resetTimestamp = Math.ceil(state.resetAt / 1000)
-
-    // Set rate limit headers on all responses
-    c.header('X-RateLimit-Limit', LIMIT_PER_MINUTE.toString())
-    c.header('X-RateLimit-Remaining', remaining.toString())
-    c.header('X-RateLimit-Reset', resetTimestamp.toString())
-
-    // Check if over limit
-    if (state.count > LIMIT_PER_MINUTE) {
-      const retryAfter = Math.ceil((state.resetAt - now) / 1000)
-      c.header('Retry-After', retryAfter.toString())
-
-      return c.json(
-        {
-          error: 'RATE_LIMITED',
-          retryAfter
-        },
-        429
-      )
+    if (!success) {
+      c.header('Retry-After', '60')
+      return c.json({ error: 'RATE_LIMITED', retryAfter: 60 }, 429)
     }
 
     await next()

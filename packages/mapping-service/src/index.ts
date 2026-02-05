@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import type { Env, HealthResponse } from './types'
-import { rateLimit } from './middleware/rateLimit'
+import { rateLimit, adminRateLimit } from './middleware/rateLimit'
 import { getTotalMappings } from './services/db'
 import lookup from './routes/lookup'
 import bulk from './routes/bulk'
@@ -15,7 +15,14 @@ const app = new Hono<{ Bindings: Env }>()
 
 // Global middleware
 app.use('*', cors())
-app.use('/v1/*', rateLimit())
+
+// Public endpoints - 1000 requests/minute
+app.use('/v1/lookup/*', rateLimit())
+app.use('/v1/bulk', rateLimit())
+app.use('/v1/register', rateLimit())
+
+// Admin endpoints - 100 requests/minute (stricter) + auth check in admin router
+app.use('/v1/admin/*', adminRateLimit())
 
 // Routes
 app.route('/v1/lookup', lookup)

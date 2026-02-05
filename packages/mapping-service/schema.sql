@@ -15,3 +15,9 @@ CREATE INDEX IF NOT EXISTS idx_inbox_id ON mappings(inbox_id);
 
 -- Index for handle lookups
 CREATE INDEX IF NOT EXISTS idx_handle ON mappings(handle);
+
+-- Index for admin stats query (ORDER BY verified_at DESC)
+CREATE INDEX IF NOT EXISTS idx_verified_at ON mappings(verified_at DESC);
+
+-- Index for admin stats query (ORDER BY created_at ASC)
+CREATE INDEX IF NOT EXISTS idx_created_at ON mappings(created_at ASC);

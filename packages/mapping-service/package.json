@@ -10,7 +10,6 @@
     "db:migrate": "wrangler d1 execute bluesky-chat-mappings --file=./schema.sql",
     "db:migrate:local": "wrangler d1 execute bluesky-chat-mappings --local --file=./schema.sql",
     "backfill": "tsx scripts/backfill.ts",
-    "backfill:relay": "tsx scripts/backfill.ts --from-relay",
     "test": "vitest",
     "typecheck": "tsc --noEmit"
   },
@@ -19,6 +18,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250129.0",
+    "@types/node": "^22.19.7",
     "tsx": "^4.21.0",
     "typescript": "^5.7.3",
     "vitest": "^4.0.18",

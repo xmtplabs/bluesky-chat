@@ -54,12 +54,26 @@ export async function getMappingsByInboxIds(db: D1Database, inboxIds: string[]):
   return (result.results ?? []).map(rowToMapping)
 }
 
+/**
+ * Upsert a mapping.
+ *
+ * This is a cache - ATProto/Jetstream is the source of truth.
+ * If an inbox_id moves from one DID to another, we delete the old mapping
+ * and insert the new one.
+ */
 export async function upsertMapping(
   db: D1Database,
   mapping: Omit<Mapping, 'createdAt'> & { createdAt?: number }
 ): Promise<void> {
   const now = Date.now()
   const createdAt = mapping.createdAt ?? now
+
+  // If this inbox_id was previously claimed by a different DID, remove it
+  // (This handles legitimate reassignment - ATProto is the authority)
+  const existingByInbox = await getMappingByInboxId(db, mapping.inboxId)
+  if (existingByInbox && existingByInbox.did !== mapping.did) {
+    await deleteMapping(db, existingByInbox.did)
+  }
 
   await db
     .prepare(
@@ -79,6 +93,21 @@ export async function upsertMapping(
       createdAt,
       mapping.verifiedAt
     )
+    .run()
+}
+
+/**
+ * Update just the handle for a mapping.
+ * Used for async handle resolution.
+ */
+export async function updateHandle(
+  db: D1Database,
+  did: string,
+  handle: string | null
+): Promise<void> {
+  await db
+    .prepare('UPDATE mappings SET handle = ? WHERE did = ?')
+    .bind(handle, did)
     .run()
 }
 

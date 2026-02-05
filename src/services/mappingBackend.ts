@@ -34,9 +34,6 @@ interface BulkResponse {
 
 interface RegisterRequest {
   did: string
-  inboxId: string
-  signature: string
-  handle?: string
 }
 
 type CircuitState = 'closed' | 'open' | 'half-open'
