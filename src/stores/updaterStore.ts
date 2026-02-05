@@ -96,19 +96,23 @@ export async function checkForUpdates(): Promise<void> {
 
   useUpdaterStore.getState().setStatus('checking')
 
-  // Run check with minimum visible duration
-  const [result] = await Promise.all([
-    api.updaterCheck(),
-    new Promise(resolve => setTimeout(resolve, 800))
-  ])
+  try {
+    // Run check with minimum visible duration
+    const [result] = await Promise.all([
+      api.updaterCheck(),
+      new Promise(resolve => setTimeout(resolve, 800))
+    ])
 
-  if (!result.success && result.error) {
-    useUpdaterStore.getState().setError(result.error)
-  } else if (!result.updateInfo) {
-    // No update available (or dev mode) - set back to idle
-    useUpdaterStore.getState().setStatus('idle')
+    if (!result.success && result.error) {
+      useUpdaterStore.getState().setError(result.error)
+    } else if (!result.updateInfo) {
+      // No update available (or dev mode) - set back to idle
+      useUpdaterStore.getState().setStatus('idle')
+    }
+    // If updateInfo exists, the 'update-available' event will handle it
+  } catch {
+    useUpdaterStore.getState().setError('Failed to check for updates')
   }
-  // If updateInfo exists, the 'update-available' event will handle it
 }
 
 export async function downloadUpdate(): Promise<void> {
@@ -117,14 +121,18 @@ export async function downloadUpdate(): Promise<void> {
 
   useUpdaterStore.getState().setStatus('downloading')
 
-  // Run download with minimum visible duration to prevent flicker on immediate failure
-  const [result] = await Promise.all([
-    api.updaterDownload(),
-    new Promise(resolve => setTimeout(resolve, 500))
-  ])
+  try {
+    // Run download with minimum visible duration to prevent flicker on immediate failure
+    const [result] = await Promise.all([
+      api.updaterDownload(),
+      new Promise(resolve => setTimeout(resolve, 500))
+    ])
 
-  if (!result.success && result.error) {
-    useUpdaterStore.getState().setError(result.error)
+    if (!result.success && result.error) {
+      useUpdaterStore.getState().setError(result.error)
+    }
+  } catch {
+    useUpdaterStore.getState().setError('Failed to download update')
   }
 }
 
