@@ -55,6 +55,8 @@ export function initAutoUpdater(mainWindow: BrowserWindow): void {
   // Disable auto-download - let user choose when to download
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = true
+  // Allow prerelease/beta updates
+  autoUpdater.allowPrerelease = true
 
   // Forward events to renderer
   autoUpdater.on('checking-for-update', () => {
