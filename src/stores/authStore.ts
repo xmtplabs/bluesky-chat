@@ -4,8 +4,8 @@ import type { BlueskyProfile } from '../types'
 import { blueskyService } from '../services/bluesky'
 import { xmtpService, logStartupDiagnostics, verboseLog, verboseWarn, verboseGroup, verboseGroupEnd } from '../services/xmtp'
 import { identityService } from '../services/identity'
-import { indexerService } from '../services/indexer'
 import { getOrCreatePrivateKey, createXMTPSigner, getAddressFromPrivateKey, signDidWithInstallationKey, hasExistingKey } from '../services/signer'
+import { mappingBackend } from '../services/mappingBackend'
 import { useProfileStore } from './profileStore'
 import { useChatStore } from './chatStore'
 import { useUIStore } from './uiStore'
@@ -110,9 +110,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       // Initialize Bluesky service
       await blueskyService.init()
-
-      // Connect to Jetstream indexer for reverse lookups
-      indexerService.connect()
 
       // Check if already logged in
       if (blueskyService.isLoggedIn()) {
@@ -257,6 +254,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
               inboxId,
               signature
             )
+
+            // Register with backend to ensure it has this mapping
+            console.log('[auth] Registering existing mapping with backend for:', blueskyProfile.did)
+            mappingBackend.registerMapping({
+              did: blueskyProfile.did
+            }).then((success) => {
+              console.log('[auth] Backend registration result:', success ? 'success' : 'failed')
+            }).catch((error) => {
+              console.warn('[auth] Backend registration error (non-critical):', error)
+            })
           } else {
             // Different inbox ID - this is a conflict
             verboseWarn(
@@ -294,6 +301,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
               const agent = blueskyService.getAgent()
               await identityService.publishIdentityToATProto(agent, inboxId, signature)
               verboseLog('Identity published to ATProto PDS')
+
+              // Register with backend service for faster lookups
+              console.log('[auth] Registering mapping with backend for:', blueskyProfile.did)
+              mappingBackend.registerMapping({
+                did: blueskyProfile.did
+              }).then((success) => {
+                console.log('[auth] Backend registration result:', success ? 'success' : 'failed')
+              }).catch((error) => {
+                console.warn('[auth] Backend registration error (non-critical):', error)
+              })
             } catch (publishError) {
               verboseWarn('Failed to publish identity to ATProto:', publishError)
             }
@@ -376,6 +393,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         signature
       )
 
+      // Register with backend service for faster lookups
+      console.log('[auth] Registering mapping with backend for:', blueskyProfile.did)
+      mappingBackend.registerMapping({
+        did: blueskyProfile.did
+      }).then((success) => {
+        console.log('[auth] Backend registration result:', success ? 'success' : 'failed')
+      }).catch((error) => {
+        console.warn('[auth] Backend registration error (non-critical):', error)
+      })
+
       // Clear mismatch/invalid state
       set({
         identityMismatch: false,
@@ -419,6 +446,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             xmtpInboxId,
             signature
           )
+
+          // Register with backend service
+          console.log('[auth] Registering mapping with backend for:', blueskyProfile.did)
+          mappingBackend.registerMapping({
+            did: blueskyProfile.did
+          }).then((success) => {
+            console.log('[auth] Backend registration result:', success ? 'success' : 'failed')
+          }).catch((error) => {
+            console.warn('[auth] Backend registration error (non-critical):', error)
+          })
 
           // Clear any mismatch/invalid state
           set({
@@ -502,7 +539,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       await blueskyService.logout()
       await xmtpService.disconnect()
-      indexerService.disconnect()
       identityService.clearStatusCache()
 
       // Reset all stores

@@ -6,6 +6,18 @@ vi.mock('./xmtp', () => ({
   verifyInboxOwnership: vi.fn().mockResolvedValue({ verified: true })
 }))
 
+// Mock the mappingBackend module - backend is unavailable in tests
+vi.mock('./mappingBackend', () => ({
+  mappingBackend: {
+    isAvailable: vi.fn().mockReturnValue(false),
+    lookupByDid: vi.fn().mockResolvedValue(null),
+    lookupByInbox: vi.fn().mockResolvedValue(null),
+    bulkLookupByDid: vi.fn().mockResolvedValue({ mappings: [], notFound: [] }),
+    bulkLookupByInbox: vi.fn().mockResolvedValue({ mappings: [], notFound: [] }),
+    registerMapping: vi.fn().mockResolvedValue(true)
+  }
+}))
+
 describe('IdentityService', () => {
   beforeEach(() => {
     // Clear localStorage mock

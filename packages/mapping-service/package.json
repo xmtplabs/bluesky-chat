@@ -1,0 +1,27 @@
+{
+  "name": "@bluesky-chat/mapping-service",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "DID↔InboxId mapping backend service for bluesky-chat",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:create": "wrangler d1 create bluesky-chat-mappings",
+    "db:migrate": "wrangler d1 execute bluesky-chat-mappings --file=./schema.sql",
+    "db:migrate:local": "wrangler d1 execute bluesky-chat-mappings --local --file=./schema.sql",
+    "backfill": "tsx scripts/backfill.ts",
+    "test": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "hono": "^4.7.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250129.0",
+    "@types/node": "^22.19.7",
+    "tsx": "^4.21.0",
+    "typescript": "^5.7.3",
+    "vitest": "^4.0.18",
+    "wrangler": "^4.0.0"
+  }
+}

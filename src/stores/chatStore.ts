@@ -244,6 +244,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const members = await xmtpService.getMembers(conv)
         // Use SDK's isGroup check - don't rely on member count since a group can have just 2 members
         const convIsGroup = xmtpService.isGroup(conv)
+        console.debug('[chatStore] Conversation', conv.id.slice(0, 8), 'isGroup:', convIsGroup, 'members:', members.length, 'metadata:', conv.metadata)
         let peerProfile: BlueskyProfile | undefined
 
         if (!convIsGroup) {
@@ -252,10 +253,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
           const peerInboxId = peerMember?.inboxId
 
           if (peerInboxId) {
-            // Try to resolve inbox ID to Bluesky profile
-            const peerDid = identityService.getDidFromInboxId(peerInboxId)
+            // Try to resolve inbox ID to DID (checks local cache, then backend)
+            const peerDid = await identityService.resolveInboxToDid(peerInboxId)
             if (peerDid) {
-              // Check cache first
+              // Check profile cache first
               const cachedProfile = identityService.getCachedProfile(peerDid)
               if (cachedProfile) {
                 peerProfile = cachedProfile

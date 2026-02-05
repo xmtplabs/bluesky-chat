@@ -2,3 +2,6 @@ ignoredBuiltDependencies:
   - core-js
   - electron
   - esbuild
+
+packages:
+  - packages/*

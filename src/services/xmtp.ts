@@ -882,8 +882,9 @@ export async function verifyInboxOwnership(
   try {
     const inboxStates = await Client.fetchInboxStates([inboxId], XMTP_ENV)
     if (!inboxStates || inboxStates.length === 0) {
-      // Inbox doesn't exist - this is a definitive failure
-      verboseWarn('No inbox state found for inboxId:', inboxId.slice(0, 16) + '...')
+      // Inbox doesn't exist on this XMTP network - this is a definitive failure
+      // Common causes: inbox was deleted, or ATProto record points to wrong env (dev vs prod)
+      console.warn(`[xmtp] Inbox ${inboxId.slice(0, 16)}... not found on ${XMTP_ENV} network`)
       return { verified: false, definitive: true }
     }
 
