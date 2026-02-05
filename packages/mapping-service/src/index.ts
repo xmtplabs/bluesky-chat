@@ -22,6 +22,7 @@ app.use('/v1/bulk', rateLimit())
 app.use('/v1/register', rateLimit())
 
 // Admin endpoints - 100 requests/minute (stricter) + auth check in admin router
+app.use('/v1/admin', adminRateLimit())
 app.use('/v1/admin/*', adminRateLimit())
 
 // Routes
