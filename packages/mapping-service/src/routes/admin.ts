@@ -95,10 +95,10 @@ admin.post('/backfill', async (c) => {
   }
 
   for (const did of body.dids) {
-    // Validate DID format before making external calls
-    if (!isValidDid(did)) {
+    // Validate DID is a string and has valid format before making external calls
+    if (typeof did !== 'string' || !isValidDid(did)) {
       results.failed++
-      results.errors.push(`${did}: invalid DID format`)
+      results.errors.push(`${String(did)}: invalid DID format`)
       continue
     }
 

@@ -25,8 +25,12 @@ bulk.post('/', async (c) => {
     return c.json({ error: 'Invalid JSON body' }, 400)
   }
 
+  if (!body || typeof body !== 'object') {
+    return c.json({ error: 'Invalid JSON body' }, 400)
+  }
+
   // Validate request
-  if (!body.type || !['by-did', 'by-inbox'].includes(body.type)) {
+  if (!body.type || typeof body.type !== 'string' || !['by-did', 'by-inbox'].includes(body.type)) {
     return c.json({ error: 'Invalid type. Must be "by-did" or "by-inbox"' }, 400)
   }
 

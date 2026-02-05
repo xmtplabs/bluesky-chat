@@ -12,6 +12,7 @@ const CURSOR_KEY = 'jetstream_cursor'
 const CURSOR_SAVE_INTERVAL_MS = 5000 // Save cursor every 5 seconds
 const CURSOR_SAVE_EVENT_COUNT = 100 // Or every 100 events
 const MAX_CONCURRENT_EVENTS = 10 // Process up to 10 events concurrently
+const MAX_QUEUE_SIZE = 1000 // Drop oldest events if queue exceeds this (we're a cache, can re-index)
 
 interface JetstreamEvent {
   did: string
@@ -191,8 +192,13 @@ export class JetstreamIndexer implements DurableObject {
 
   /**
    * Enqueue an event for processing with bounded concurrency.
+   * Drops oldest events if queue is full (we're a cache, can re-index from ATProto).
    */
   private enqueueEvent(event: JetstreamEvent): void {
+    if (this.eventQueue.length >= MAX_QUEUE_SIZE) {
+      const dropped = this.eventQueue.shift()
+      console.warn(`[Jetstream] Queue full (${MAX_QUEUE_SIZE}), dropped event for ${dropped?.did}`)
+    }
     this.eventQueue.push(event)
     this.processQueue()
   }

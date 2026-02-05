@@ -27,7 +27,11 @@ register.post('/', async (c) => {
     return c.json({ error: 'Invalid JSON body' }, 400)
   }
 
-  if (!body.did) {
+  if (!body || typeof body !== 'object') {
+    return c.json({ error: 'Invalid JSON body' }, 400)
+  }
+
+  if (!body.did || typeof body.did !== 'string') {
     return c.json({ error: 'Missing required field: did' }, 400)
   }
 
