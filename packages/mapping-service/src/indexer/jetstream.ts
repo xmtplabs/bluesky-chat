@@ -45,6 +45,7 @@ export class JetstreamIndexer implements DurableObject {
   private env: Env
   private ws: WebSocket | null = null
   private isConnected = false
+  private isIntentionalDisconnect: boolean = false
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null
 
   // Cursor management
@@ -128,6 +129,7 @@ export class JetstreamIndexer implements DurableObject {
 
   private async connect(): Promise<void> {
     if (this.ws) {
+      this.isIntentionalDisconnect = true
       this.ws.close()
       this.ws = null
     }
@@ -147,6 +149,7 @@ export class JetstreamIndexer implements DurableObject {
 
       this.ws = new WebSocket(wsUrl)
       this.setupWebSocketHandlers()
+      this.isIntentionalDisconnect = false
     } catch (error) {
       console.error('[Jetstream] Connection error:', error)
       this.scheduleReconnect()
@@ -181,7 +184,9 @@ export class JetstreamIndexer implements DurableObject {
       this.ws = null
       // Save cursor before reconnecting
       this.saveCursorNow()
-      this.scheduleReconnect()
+      if (!this.isIntentionalDisconnect) {
+        this.scheduleReconnect()
+      }
     })
 
     this.ws.addEventListener('error', (error) => {
@@ -192,12 +197,13 @@ export class JetstreamIndexer implements DurableObject {
 
   /**
    * Enqueue an event for processing with bounded concurrency.
-   * Drops oldest events if queue is full (we're a cache, can re-index from ATProto).
+   * Drops new events if queue is full to prevent cursor advancement past dropped events.
+   * Dropped events will be reprocessed on reconnection since cursor hasn't moved past them.
    */
   private enqueueEvent(event: JetstreamEvent): void {
     if (this.eventQueue.length >= MAX_QUEUE_SIZE) {
-      const dropped = this.eventQueue.shift()
-      console.warn(`[Jetstream] Queue full (${MAX_QUEUE_SIZE}), dropped event for ${dropped?.did}`)
+      console.warn(`[Jetstream] Queue full (${MAX_QUEUE_SIZE}), dropping new event for ${event.did}`)
+      return
     }
     this.eventQueue.push(event)
     this.processQueue()
