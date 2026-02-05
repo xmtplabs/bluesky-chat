@@ -20,6 +20,7 @@ app.use('*', cors())
 app.use('/v1/lookup/*', rateLimit())
 app.use('/v1/bulk', rateLimit())
 app.use('/v1/register', rateLimit())
+app.use('/health', rateLimit())
 
 // Admin endpoints - 100 requests/minute (stricter) + auth check in admin router
 app.use('/v1/admin', adminRateLimit())
