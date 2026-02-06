@@ -1,6 +1,7 @@
 import type { ChatConversation } from '../../types'
 import { useUIStore } from '../../stores/uiStore'
 import { Avatar } from '../shared/Avatar'
+import { getGroupMemberNames } from '../../utils/format'
 
 interface ConversationItemProps {
   conversation: ChatConversation
@@ -44,7 +45,7 @@ export function ConversationItem({ conversation, isSelected, onSelect }: Convers
   }
 
   const displayName = conversation.isGroup
-    ? conversation.groupName || 'Group Chat'
+    ? conversation.groupName || getGroupMemberNames(conversation.groupMembers)
     : conversation.peerProfile?.displayName ||
       conversation.peerProfile?.handle ||
       shortenAddress(conversation.peerAddress)

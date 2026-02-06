@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useGroupAdmin } from '../context/GroupAdminContext'
 import { Avatar } from '../../../shared/Avatar'
+import { xmtpService } from '../../../../services/xmtp'
 
 const MAX_NAME_LENGTH = 64
 const MAX_DESCRIPTION_LENGTH = 256
@@ -17,7 +18,25 @@ export function MetadataSection() {
 
   const isEditing = editMode === 'edit-metadata'
   const currentImageUrl = draftImagePreview || group?.imageUrl
-  const displayName = group?.name || 'Group Chat'
+
+  // Generate fallback name from member profiles (excluding self)
+  const fallbackName = useMemo(() => {
+    const myInboxId = xmtpService.getInboxId()
+    const otherMembers = members.filter((m) => m.inboxId !== myInboxId)
+    if (otherMembers.length === 0) return 'Group Chat'
+
+    const names = otherMembers
+      .slice(0, 3)
+      .map((m) => m.profile?.displayName || m.profile?.handle || m.inboxId.slice(0, 8))
+
+    const remaining = otherMembers.length - names.length
+    if (remaining > 0) {
+      return `${names.join(', ')} +${remaining}`
+    }
+    return names.join(', ')
+  }, [members])
+
+  const displayName = group?.name || fallbackName
 
   const handleAvatarClick = () => {
     if (isEditing) {

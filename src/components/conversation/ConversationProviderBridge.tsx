@@ -1,6 +1,7 @@
 import { useMemo, useCallback, type ReactNode } from 'react'
 import { ConversationProvider, type ConversationContextValue } from './context/ConversationContext'
 import { useConversations } from '../../hooks/useConversations'
+import { getGroupMemberNames } from '../../utils/format'
 
 interface ConversationProviderBridgeProps {
   children: ReactNode
@@ -31,7 +32,7 @@ export function ConversationProviderBridge({
     const query = searchQuery.toLowerCase()
     return conversations.filter((conv) => {
       const displayName = conv.isGroup
-        ? conv.groupName || 'Group Chat'
+        ? conv.groupName || getGroupMemberNames(conv.groupMembers)
         : conv.peerProfile?.displayName || ''
       const handle = conv.peerProfile?.handle || ''
       const lastMessage = conv.lastMessage || ''
