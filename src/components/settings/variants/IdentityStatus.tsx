@@ -138,7 +138,7 @@ export function IdentityStatus() {
       ) : (
         <div className="text-center px-3 pb-4">
           <p className="text-[11px] text-[var(--color-text-tertiary)] leading-relaxed">
-            Your inbox is cryptographically linked to your Bluesky identity.{' '}
+            Your inbox is cryptographically linked to your Bluesky identity. Secured by XMTP.{' '}
             <a
               href="https://xmtp.org"
               target="_blank"
