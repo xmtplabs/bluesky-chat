@@ -110,6 +110,163 @@ async function checkIndexedDbExists(): Promise<{ exists: boolean; dbName: string
 }
 
 /**
+ * Check OPFS (Origin Private File System) for XMTP database files.
+ * The XMTP browser SDK stores its SQLite database in OPFS, not IndexedDB.
+ */
+async function checkOpfsFiles(): Promise<{ available: boolean; files: string[]; error?: string }> {
+  try {
+    if (!navigator.storage?.getDirectory) {
+      return { available: false, files: [], error: 'OPFS API not available' }
+    }
+    const root = await navigator.storage.getDirectory()
+    const files: string[] = []
+    // @ts-expect-error - entries() exists on FileSystemDirectoryHandle but TS types may lag
+    for await (const [name] of root.entries()) {
+      files.push(name)
+    }
+    return { available: true, files }
+  } catch (error) {
+    return { available: false, files: [], error: String(error) }
+  }
+}
+
+/**
+ * Check the StorageManager persistence status
+ */
+async function checkStoragePersistence(): Promise<{ persisted: boolean; estimate?: { usage: number; quota: number } }> {
+  try {
+    const persisted = await navigator.storage?.persisted?.() ?? false
+    const estimate = await navigator.storage?.estimate?.()
+    return {
+      persisted,
+      estimate: estimate ? { usage: estimate.usage ?? 0, quota: estimate.quota ?? 0 } : undefined
+    }
+  } catch {
+    return { persisted: false }
+  }
+}
+
+const PERSISTENCE_MARKER_KEY = 'xmtp-persistence-marker'
+const PERSISTENCE_MARKER_VERSION_KEY = 'xmtp-persistence-marker-version'
+const IDB_PERSISTENCE_DB = 'xmtp-persistence-test'
+const OPFS_PERSISTENCE_MARKER = '.xmtp-persistence-marker'
+
+/**
+ * Check if OPFS data survived from the previous session.
+ * Writes a small marker file to OPFS that we check on the next launch.
+ * This is independent of the XMTP SDK — it tests raw OPFS persistence.
+ */
+async function checkOpfsPersistence(): Promise<{ survived: boolean; previousTimestamp: string | null; writeError?: string }> {
+  try {
+    if (!navigator.storage?.getDirectory) {
+      return { survived: false, previousTimestamp: null, writeError: 'OPFS API not available' }
+    }
+    const root = await navigator.storage.getDirectory()
+
+    // Read previous marker
+    let previousTimestamp: string | null = null
+    try {
+      const markerHandle = await root.getFileHandle(OPFS_PERSISTENCE_MARKER, { create: false })
+      const file = await markerHandle.getFile()
+      previousTimestamp = await file.text()
+    } catch {
+      // File doesn't exist — first launch or data was lost
+    }
+
+    // Write new marker for next launch
+    try {
+      const markerHandle = await root.getFileHandle(OPFS_PERSISTENCE_MARKER, { create: true })
+      const writable = await markerHandle.createWritable()
+      await writable.write(new Date().toISOString())
+      await writable.close()
+    } catch (writeErr) {
+      return { survived: previousTimestamp !== null, previousTimestamp, writeError: String(writeErr) }
+    }
+
+    return { survived: previousTimestamp !== null, previousTimestamp }
+  } catch (error) {
+    return { survived: false, previousTimestamp: null, writeError: String(error) }
+  }
+}
+const IDB_PERSISTENCE_STORE = 'markers'
+
+/**
+ * Check if localStorage survived from the previous session.
+ * Writes a marker that we check on the next launch.
+ */
+function checkLocalStoragePersistence(): { survived: boolean; previousTimestamp: string | null; previousVersion: string | null } {
+  const previousTimestamp = localStorage.getItem(PERSISTENCE_MARKER_KEY)
+  const previousVersion = localStorage.getItem(PERSISTENCE_MARKER_VERSION_KEY)
+
+  // Write new marker for next launch
+  localStorage.setItem(PERSISTENCE_MARKER_KEY, new Date().toISOString())
+  const currentVersion = import.meta.env.VITE_APP_VERSION ?? 'unknown'
+  localStorage.setItem(PERSISTENCE_MARKER_VERSION_KEY, currentVersion)
+
+  return {
+    survived: previousTimestamp !== null,
+    previousTimestamp,
+    previousVersion
+  }
+}
+
+/**
+ * Check if IndexedDB data survived from the previous session.
+ * Uses a dedicated test database to avoid interfering with app data.
+ */
+async function checkIndexedDbPersistence(): Promise<{ survived: boolean; previousTimestamp: string | null }> {
+  return new Promise((resolve) => {
+    try {
+      const request = indexedDB.open(IDB_PERSISTENCE_DB, 1)
+
+      request.onupgradeneeded = () => {
+        const db = request.result
+        if (!db.objectStoreNames.contains(IDB_PERSISTENCE_STORE)) {
+          db.createObjectStore(IDB_PERSISTENCE_STORE)
+        }
+      }
+
+      request.onsuccess = () => {
+        const db = request.result
+        // Read previous marker
+        const readTx = db.transaction(IDB_PERSISTENCE_STORE, 'readonly')
+        const store = readTx.objectStore(IDB_PERSISTENCE_STORE)
+        const getReq = store.get('timestamp')
+
+        getReq.onsuccess = () => {
+          const previousTimestamp = getReq.result ?? null
+
+          // Write new marker
+          const writeTx = db.transaction(IDB_PERSISTENCE_STORE, 'readwrite')
+          const writeStore = writeTx.objectStore(IDB_PERSISTENCE_STORE)
+          writeStore.put(new Date().toISOString(), 'timestamp')
+
+          writeTx.oncomplete = () => {
+            db.close()
+            resolve({ survived: previousTimestamp !== null, previousTimestamp })
+          }
+          writeTx.onerror = () => {
+            db.close()
+            resolve({ survived: previousTimestamp !== null, previousTimestamp })
+          }
+        }
+
+        getReq.onerror = () => {
+          db.close()
+          resolve({ survived: false, previousTimestamp: null })
+        }
+      }
+
+      request.onerror = () => {
+        resolve({ survived: false, previousTimestamp: null })
+      }
+    } catch {
+      resolve({ survived: false, previousTimestamp: null })
+    }
+  })
+}
+
+/**
  * Get previous installation info from localStorage for a specific inbox
  * Uses per-inbox keys so multi-user doesn't cause false "new installation" warnings
  */
@@ -259,9 +416,10 @@ function markSessionEnded(): void {
 }
 
 /**
- * Log startup diagnostics - call this early in app startup
+ * Log startup diagnostics - call this early in app startup.
+ * Now checks OPFS, localStorage persistence, storage quotas, and main process info.
  */
-export function logStartupDiagnostics(): void {
+export async function logStartupDiagnostics(): Promise<void> {
   const previousSession = checkPreviousSessionState()
   const previousInfo = getPreviousInstallationInfo()
   const currentOrigin = typeof window !== 'undefined' ? window.location.origin : 'unknown'
@@ -270,39 +428,86 @@ export function logStartupDiagnostics(): void {
   // Save current origin for next comparison
   localStorage.setItem(LAST_ORIGIN_KEY, currentOrigin)
 
-  verboseGroup('🚀 XMTP STARTUP DIAGNOSTICS')
+  // ── Section 1: Basic info (verbose — detail only needed for debugging) ──
+  verboseGroup('XMTP STARTUP DIAGNOSTICS')
   verboseLog('Timestamp:', new Date().toISOString())
   verboseLog('Environment:', XMTP_ENV)
   verboseLog('Build mode:', import.meta.env.MODE)
   verboseLog('Current origin:', currentOrigin)
-  verboseLog('Previous origin:', previousOrigin || 'none')
+  verboseLog('Current URL:', typeof window !== 'undefined' ? window.location.href : 'unknown')
+  verboseLog('Previous origin:', previousOrigin || 'none (FIRST LAUNCH OR STORAGE WIPED)')
 
-  // Check for origin (port) change - this is the main cause of lost installations in dev!
+  // ── Section 2: Persistence checks (always log — critical for diagnosing issues) ──
+  const persistenceCheck = checkLocalStoragePersistence()
+  if (!persistenceCheck.survived) {
+    console.error('[xmtp] localStorage DID NOT SURVIVE from previous session')
+  }
+
+  const idbCheck = await checkIndexedDbPersistence()
+  if (!idbCheck.survived) {
+    console.error('[xmtp] IndexedDB DID NOT SURVIVE from previous session')
+  }
+
+  const opfsCheck = await checkOpfsPersistence()
+  if (opfsCheck.writeError) {
+    console.error('[xmtp] OPFS WRITE FAILED:', opfsCheck.writeError)
+  } else if (!opfsCheck.survived) {
+    verboseLog('[xmtp] OPFS marker did not survive (first launch or data lost)')
+  }
+
+  // Log summary line always (one line, not a wall of text)
+  const ls = persistenceCheck.survived ? 'OK' : 'LOST'
+  const idb = idbCheck.survived ? 'OK' : 'LOST'
+  const opfs = opfsCheck.writeError ? 'ERROR' : opfsCheck.survived ? 'OK' : 'NEW'
+  console.log(`[xmtp] Storage persistence: localStorage=${ls} IndexedDB=${idb} OPFS=${opfs}`)
+
+  // ── Section 3: Origin change (always log — this causes data loss) ──
   if (previousOrigin && previousOrigin !== currentOrigin) {
-    verboseError('🔴 ORIGIN CHANGED (different port)')
-    verboseError(`   Previous: ${previousOrigin}`)
-    verboseError(`   Current:  ${currentOrigin}`)
-    verboseError('   IndexedDB is scoped to origin - this WILL create a new installation!')
-    verboseError('   💡 Fix: Use strictPort in vite config or kill the process using the old port')
+    console.error('[xmtp] ORIGIN CHANGED:', previousOrigin, '->', currentOrigin, '— storage will be lost!')
+  }
+
+  // ── Section 4+: Detailed info (verbose only) ──
+  const opfsResult = await checkOpfsFiles()
+  if (opfsResult.available && opfsResult.files.length > 0) {
+    verboseLog('OPFS files:', opfsResult.files.join(', '))
+  }
+
+  try {
+    const databases = await indexedDB.databases()
+    verboseLog('IndexedDB databases:', databases.map(db => `${db.name} (v${db.version})`).join(', ') || 'none')
+  } catch {
+    // ignore
+  }
+
+  const storageInfo = await checkStoragePersistence()
+  verboseLog('Storage persisted:', storageInfo.persisted)
+  if (storageInfo.estimate) {
+    verboseLog(`Storage usage: ${(storageInfo.estimate.usage / 1024 / 1024).toFixed(1)} MB / ${(storageInfo.estimate.quota / 1024 / 1024).toFixed(0)} MB`)
+  }
+
+  try {
+    const diag = await window.electronAPI?.getStorageDiagnostics?.()
+    if (diag) {
+      verboseLog('userData:', diag.userDataPath)
+      verboseLog('Electron:', diag.electronVersion, '/ Chromium:', diag.chromiumVersion)
+      verboseLog('Secure storage files:', diag.secureStorageFiles.length > 0
+        ? diag.secureStorageFiles.join(', ')
+        : 'NONE')
+    }
+  } catch {
+    // ignore
   }
 
   if (previousSession.wasActive) {
-    verboseWarn('⚠️ PREVIOUS SESSION DID NOT END GRACEFULLY')
-    verboseWarn('   Previous session started:', previousSession.startTime)
-    verboseWarn('   This could indicate a crash, force quit, or killed dev server')
-    verboseWarn('   (This alone should NOT cause a new installation - IndexedDB should persist)')
-  } else {
-    verboseLog('✅ Previous session ended gracefully')
+    verboseWarn('Previous session did not end gracefully (started:', previousSession.startTime, ')')
   }
 
-  verboseLog('Previous installation ID:', previousInfo.installationId?.slice(0, 16) + '...' || 'none')
-  verboseLog('Previous inbox ID:', previousInfo.inboxId?.slice(0, 16) + '...' || 'none')
-  verboseLog('Previous environment:', previousInfo.env || 'none')
+  verboseLog('Previous installation:', previousInfo.installationId?.slice(0, 16) + '...' || 'none')
+  verboseLog('Previous inbox:', previousInfo.inboxId?.slice(0, 16) + '...' || 'none')
+  verboseLog('Previous env:', previousInfo.env || 'none')
 
   if (previousInfo.env && previousInfo.env !== XMTP_ENV) {
-    verboseError('🔴 ENVIRONMENT MISMATCH DETECTED')
-    verboseError(`   Previous: ${previousInfo.env}, Current: ${XMTP_ENV}`)
-    verboseError('   This WILL create a new installation!')
+    console.error('[xmtp] Environment mismatch:', previousInfo.env, '->', XMTP_ENV)
   }
 
   verboseGroupEnd()
@@ -315,11 +520,17 @@ if (typeof window !== 'undefined') {
       getHistory: typeof getInstallationHistory
       printHistory: typeof printInstallationHistory
       logStartup: typeof logStartupDiagnostics
+      checkOpfs: typeof checkOpfsFiles
+      checkOpfsPersistence: typeof checkOpfsPersistence
+      checkPersistence: typeof checkStoragePersistence
     }
   }).xmtpDiagnostics = {
     getHistory: getInstallationHistory,
     printHistory: printInstallationHistory,
-    logStartup: logStartupDiagnostics
+    logStartup: logStartupDiagnostics,
+    checkOpfs: checkOpfsFiles,
+    checkOpfsPersistence: checkOpfsPersistence,
+    checkPersistence: checkStoragePersistence
   }
 
   // Try to mark session as ended on window close
@@ -431,6 +642,21 @@ class XMTPService {
       }
 
       logInstallationDiagnostics(diagnostics)
+
+      // Verify OPFS has the database file after client creation
+      const expectedDbFile = `xmtp-${XMTP_ENV}-${newInboxId}.db3`
+      const postConnectOpfs = await checkOpfsFiles()
+      if (postConnectOpfs.available) {
+        const hasDb = postConnectOpfs.files.some(f => f === expectedDbFile)
+        if (hasDb) {
+          verboseLog(`OPFS: Database file confirmed: ${expectedDbFile}`)
+        } else {
+          verboseWarn(`OPFS: Expected "${expectedDbFile}" not found. Files:`,
+            postConnectOpfs.files.length > 0 ? postConnectOpfs.files.join(', ') : 'NONE')
+        }
+      } else {
+        console.error('[xmtp] OPFS not available after client creation:', postConnectOpfs.error)
+      }
 
       // Save current installation info for next comparison
       saveInstallationInfo(newInstallationId, newInboxId)

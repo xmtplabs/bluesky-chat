@@ -97,6 +97,16 @@ export interface ElectronAPI {
   onOAuthCallback: (callback: (data: { code: string; state: string; iss?: string }) => void) => void
   removeOAuthCallback: () => void
 
+  // Storage diagnostics
+  getStorageDiagnostics: () => Promise<{
+    userDataPath: string
+    secureStorageFiles: string[]
+    electronVersion: string
+    chromiumVersion: string
+    appName: string
+    appPath: string
+  }>
+
   // Auto-updater
   updaterCheck: () => Promise<{ success: boolean; updateInfo?: UpdateInfo; error?: string }>
   updaterDownload: () => Promise<{ success: boolean; error?: string }>

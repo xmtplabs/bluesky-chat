@@ -23,7 +23,7 @@ vi.mock('../services/xmtp', () => ({
     }),
     disconnect: vi.fn().mockResolvedValue(undefined)
   },
-  logStartupDiagnostics: vi.fn()
+  logStartupDiagnostics: vi.fn().mockResolvedValue(undefined)
 }))
 
 vi.mock('../services/identity', () => ({

@@ -100,7 +100,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   initializeServices: async () => {
     // Log startup diagnostics first to detect crashes/ungraceful shutdowns
-    logStartupDiagnostics()
+    // Fire-and-forget — don't block initialization
+    logStartupDiagnostics().catch((err) => console.warn('Startup diagnostics failed:', err))
 
     set({ isLoading: true, error: null })
 

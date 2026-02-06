@@ -32,7 +32,11 @@ export default defineConfig({
     },
     server: {
       // Listen on 127.0.0.1 for AT Protocol OAuth loopback compatibility
-      host: '127.0.0.1'
+      host: '127.0.0.1',
+      // Fail instead of silently picking another port — a port change means a
+      // different origin, which wipes all origin-scoped storage (localStorage,
+      // IndexedDB, OPFS) and forces a full re-login + new XMTP installation.
+      strictPort: true
     },
     build: {
       rollupOptions: {
