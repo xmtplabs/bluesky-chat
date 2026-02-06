@@ -13,6 +13,7 @@ export interface ConversationActions {
   select: (id: string) => void
   search: (query: string) => void
   acceptRequest: (id: string) => void
+  denyRequest: (id: string) => void
 }
 
 export interface ConversationMeta {

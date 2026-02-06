@@ -1,9 +1,10 @@
 import { create } from 'zustand'
 import type { DecodedMessage } from '@xmtp/browser-sdk'
 import type { ChatConversation, ChatMessage, BlueskyProfile } from '../types'
-import { xmtpService } from '../services/xmtp'
+import { xmtpService, ConsentState } from '../services/xmtp'
 import { identityService } from '../services/identity'
 import { blueskyService } from '../services/bluesky'
+import { useProfileStore } from './profileStore'
 import { getErrorMessage } from '../utils/errors'
 
 // Module-level timeout for conversation stream debouncing (cleared on stop)
@@ -327,25 +328,6 @@ function addStreamedMessage(
   }
 }
 
-// Generic localStorage helpers for Set<string> persistence
-function loadStringSet(key: string): Set<string> {
-  try {
-    const stored = localStorage.getItem(key)
-    if (stored) return new Set(JSON.parse(stored))
-  } catch (error) {
-    console.error(`Failed to load ${key}:`, error)
-  }
-  return new Set()
-}
-
-function saveStringSet(key: string, items: Set<string>): void {
-  try {
-    localStorage.setItem(key, JSON.stringify([...items]))
-  } catch (error) {
-    console.error(`Failed to save ${key}:`, error)
-  }
-}
-
 // Get last known conversation count for a DID (used to skip skeleton loading for known-empty inboxes)
 export const getLastKnownConversationCount = (did: string): number | null => {
   try {
@@ -375,8 +357,6 @@ interface ChatState {
   isSending: boolean
   error: string | null
   unreadTotal: number
-  acceptedRequests: Set<string>
-  initiatedConversations: Set<string> // Conversations we started
 
   // Actions
   loadConversations: () => Promise<void>
@@ -389,7 +369,8 @@ interface ChatState {
   startConversationStream: () => Promise<void>
   stopStreaming: () => Promise<void>
   markAsRead: (conversationId: string) => void
-  acceptRequest: (conversationId: string) => void
+  acceptRequest: (conversationId: string) => Promise<void>
+  denyRequest: (conversationId: string) => Promise<void>
   clearError: () => void
   reset: () => void
 }
@@ -404,8 +385,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isSending: false,
   error: null,
   unreadTotal: 0,
-  acceptedRequests: loadStringSet('xmtp_accepted_requests'),
-  initiatedConversations: loadStringSet('xmtp_initiated_conversations'),
 
   loadConversations: async () => {
     const thisToken = Symbol()
@@ -418,21 +397,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const chatConversations: ChatConversation[] = []
       const myInboxId = xmtpService.getInboxId()
 
-      // Phase 1: Gather all conversation data and collect inbox IDs that need resolution
-      const allInboxIds = new Set<string>()
+      // Phase 1: Gather all conversation data and consent state
       interface ConvData {
         conv: typeof xmtpConversations[0]
         members: Awaited<ReturnType<typeof xmtpService.getMembers>>
         isGroup: boolean
         lastMessage: DecodedMessage | undefined
         peerInboxId: string | undefined
+        consentState: ConsentState
       }
       const convDatas: ConvData[] = []
 
       for (const conv of xmtpConversations) {
         const members = await xmtpService.getMembers(conv)
         const convIsGroup = xmtpService.isGroup(conv)
-        console.debug('[chatStore] Conversation', conv.id.slice(0, 8), 'isGroup:', convIsGroup, 'members:', members.length, 'metadata:', conv.metadata)
+        const consentState = await conv.consentState()
+        console.debug('[chatStore] Conversation', conv.id.slice(0, 8), 'isGroup:', convIsGroup, 'members:', members.length, 'consent:', consentState, 'metadata:', conv.metadata)
 
         const peerInboxId = !convIsGroup
           ? members.find((m) => m.inboxId !== myInboxId)?.inboxId
@@ -440,25 +420,42 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
         const lastMessage = (await conv.lastMessage()) ?? undefined
 
-        // Collect inbox IDs that need resolution
-        if (peerInboxId) allInboxIds.add(peerInboxId)
-        if (lastMessage && convIsGroup) {
-          for (const id of extractInboxIdsFromGroupUpdate(lastMessage.content)) {
-            allInboxIds.add(id)
-          }
-          if (lastMessage.senderInboxId) allInboxIds.add(lastMessage.senderInboxId)
-        }
-
-        convDatas.push({ conv, members, isGroup: convIsGroup, lastMessage, peerInboxId })
+        convDatas.push({ conv, members, isGroup: convIsGroup, lastMessage, peerInboxId, consentState })
       }
 
-      // Phase 2: Single bulk resolution for all inbox IDs
-      if (allInboxIds.size > 0) {
-        await ensureInboxIdsResolved([...allInboxIds])
+      // Filter out denied conversations before identity resolution
+      const activeConvDatas = convDatas.filter(d => d.consentState !== ConsentState.Denied)
+
+      // Phase 2: Single bulk resolution for all inbox IDs (only for active conversations)
+      const activeInboxIds = new Set<string>()
+      for (const d of activeConvDatas) {
+        if (d.peerInboxId) activeInboxIds.add(d.peerInboxId)
+        if (d.lastMessage && d.isGroup) {
+          for (const id of extractInboxIdsFromGroupUpdate(d.lastMessage.content)) {
+            activeInboxIds.add(id)
+          }
+          if (d.lastMessage.senderInboxId) activeInboxIds.add(d.lastMessage.senderInboxId)
+        }
+      }
+      if (activeInboxIds.size > 0) {
+        await ensureInboxIdsResolved([...activeInboxIds])
+      }
+
+      // Auto-allow unknown DMs from people the user follows on Bluesky
+      const { followingDids } = useProfileStore.getState()
+      if (followingDids.size > 0) {
+        for (const d of activeConvDatas) {
+          if (d.consentState !== ConsentState.Unknown || d.isGroup) continue
+          const peerDid = d.peerInboxId ? identityService.getDidFromInboxId(d.peerInboxId) : undefined
+          if (peerDid && followingDids.has(peerDid)) {
+            xmtpService.setConsentState(d.conv.id, ConsentState.Allowed).catch(() => {})
+            d.consentState = ConsentState.Allowed
+          }
+        }
       }
 
       // Phase 3: Build conversation objects with resolved names
-      for (const { conv, members, isGroup: convIsGroup, lastMessage, peerInboxId } of convDatas) {
+      for (const { conv, members, isGroup: convIsGroup, lastMessage, peerInboxId, consentState } of activeConvDatas) {
         let peerProfile: BlueskyProfile | undefined
 
         if (!convIsGroup && peerInboxId) {
@@ -491,7 +488,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
           groupName: xmtpService.getGroupName(conv) || undefined,
           groupDescription: xmtpService.getGroupDescription(conv) || undefined,
           groupImageUrl: xmtpService.getGroupImageUrl(conv) || undefined,
-          groupMembers: members.map((m) => m.inboxId)
+          groupMembers: members.map((m) => m.inboxId),
+          consentState: consentState === ConsentState.Allowed ? 'allowed' : 'unknown'
         })
       }
 
@@ -677,6 +675,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     try {
       const conversation = await xmtpService.createDm(peerInboxId)
 
+      // Set consent to allowed for conversations we initiate
+      await xmtpService.setConsentState(conversation.id, ConsentState.Allowed)
+
       // Cache the peer's profile and register the inboxId -> DID mapping
       // This ensures we can resolve their profile when loading conversations later
       if (peerProfile) {
@@ -691,16 +692,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
         peerAddress: peerInboxId, // Using inbox ID as the peer identifier
         peerProfile,
         unreadCount: 0,
-        isGroup: false
+        isGroup: false,
+        consentState: 'allowed'
       }
 
-      // Mark as initiated by us (so it shows in primary inbox)
-      const newInitiated = new Set(get().initiatedConversations)
-      newInitiated.add(conversation.id)
-      saveStringSet('xmtp_initiated_conversations', newInitiated)
-
       const conversations = [newConv, ...get().conversations]
-      set({ conversations, selectedConversationId: conversation.id, initiatedConversations: newInitiated })
+      set({ conversations, selectedConversationId: conversation.id })
 
       return conversation.id
     } catch (error) {
@@ -722,6 +719,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       const conversation = await xmtpService.createGroup(memberInboxIds, { name })
 
+      // Set consent to allowed for conversations we initiate
+      await xmtpService.setConsentState(conversation.id, ConsentState.Allowed)
+
       const newConv: ChatConversation = {
         id: conversation.id,
         topic: conversation.id,
@@ -729,16 +729,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
         unreadCount: 0,
         isGroup: true,
         groupName: name,
-        groupMembers: memberInboxIds
+        groupMembers: memberInboxIds,
+        consentState: 'allowed'
       }
 
-      // Mark as initiated by us (so it shows in primary inbox)
-      const newInitiated = new Set(get().initiatedConversations)
-      newInitiated.add(conversation.id)
-      saveStringSet('xmtp_initiated_conversations', newInitiated)
-
       const conversations = [newConv, ...get().conversations]
-      set({ conversations, selectedConversationId: conversation.id, initiatedConversations: newInitiated })
+      set({ conversations, selectedConversationId: conversation.id })
 
       // Load messages so the system message ("you added X and Y") appears immediately
       get().loadMessages(conversation.id)
@@ -845,11 +841,30 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  acceptRequest: (conversationId: string) => {
-    const newAcceptedRequests = new Set(get().acceptedRequests)
-    newAcceptedRequests.add(conversationId)
-    saveStringSet('xmtp_accepted_requests', newAcceptedRequests)
-    set({ acceptedRequests: newAcceptedRequests })
+  acceptRequest: async (conversationId: string) => {
+    try {
+      await xmtpService.setConsentState(conversationId, ConsentState.Allowed)
+      set((state) => ({
+        conversations: state.conversations.map((c) =>
+          c.id === conversationId ? { ...c, consentState: 'allowed' } : c
+        )
+      }))
+    } catch (error) {
+      console.error('Failed to accept request:', error)
+    }
+  },
+
+  denyRequest: async (conversationId: string) => {
+    try {
+      await xmtpService.setConsentState(conversationId, ConsentState.Denied)
+      set((state) => ({
+        conversations: state.conversations.filter((c) => c.id !== conversationId),
+        selectedConversationId:
+          state.selectedConversationId === conversationId ? null : state.selectedConversationId
+      }))
+    } catch (error) {
+      console.error('Failed to block conversation:', error)
+    }
   },
 
   clearError: () => set({ error: null }),
@@ -865,10 +880,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // Clear message insertion queues
     messageInsertionQueues.clear()
 
-    // Clear localStorage for user-specific data
-    localStorage.removeItem('xmtp_accepted_requests')
-    localStorage.removeItem('xmtp_initiated_conversations')
-
     set({
       conversations: [],
       messages: new Map(),
@@ -878,9 +889,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       isCreating: false,
       isSending: false,
       error: null,
-      unreadTotal: 0,
-      acceptedRequests: new Set(),
-      initiatedConversations: new Set()
+      unreadTotal: 0
     })
   }
 }))
