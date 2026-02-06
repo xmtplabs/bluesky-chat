@@ -465,13 +465,21 @@ class IdentityService {
     await this.saveMappings()
   }
 
-  // Get XMTP inbox ID from Bluesky DID
+  // Get XMTP inbox ID from Bluesky DID (synchronous cache lookup)
   getInboxIdFromDid(blueskyDid: string): string | undefined {
     // Check local identity mappings first (own identity)
     const localMapping = this.mappings.get(blueskyDid)?.xmtpInboxId
     if (localMapping) return localMapping
     // Fall back to indexed mappings (other users)
     return this.didToInbox.get(blueskyDid)
+  }
+
+  /**
+   * Resolve a DID to an inbox ID, checking the local cache first.
+   * Convenience wrapper over getInboxIdFromDid() + resolveDidToInbox().
+   */
+  async resolveDidToInboxCached(did: string): Promise<string | undefined> {
+    return this.getInboxIdFromDid(did) || await this.resolveDidToInbox(did) || undefined
   }
 
   // Get Bluesky DID from XMTP inbox ID

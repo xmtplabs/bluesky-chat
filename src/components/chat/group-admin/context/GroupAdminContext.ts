@@ -1,6 +1,6 @@
 import { createSafeContext } from '../../../../lib/context/createSafeContext'
 import type { ContextValue } from '../../../../lib/context/types'
-import type { BlueskyProfile } from '../../../../types'
+import type { BlueskyProfile, XmtpUserStatus } from '../../../../types'
 import type { Group } from '@xmtp/browser-sdk'
 
 export type MemberRole = 'member' | 'admin' | 'super_admin'
@@ -20,6 +20,7 @@ export interface GroupAdminState {
   draftImagePreview: string | null
   memberSearchQuery: string
   selectedMembersToAdd: BlueskyProfile[]
+  xmtpStatus: Map<string, XmtpUserStatus>
   isSaving: boolean
   isLoadingMembers: boolean
   error: string | null
@@ -33,6 +34,7 @@ export interface GroupAdminActions {
   setMemberSearchQuery: (query: string) => void
   toggleMemberToAdd: (profile: BlueskyProfile) => void
   removeMemberToAdd: (did: string) => void
+  checkXmtpStatus: (user: BlueskyProfile) => Promise<void>
   saveMetadata: () => Promise<void>
   addMembers: () => Promise<void>
   removeMember: (inboxId: string) => Promise<void>

@@ -16,7 +16,7 @@ export function UserListItem({ user }: UserListItemProps) {
   const isSelected = selectedUsers.some((u) => u.did === user.did)
   const status = xmtpStatus.get(user.did)
   const canMessage = status === 'verified'
-  const isChecking = status === 'checking'
+  const isChecking = status === 'checking' || status === undefined
 
   return (
     <button
