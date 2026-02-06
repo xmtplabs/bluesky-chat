@@ -16,7 +16,7 @@ export function useXMTP() {
     conversations,
     messages,
     selectedConversationId,
-    isLoading: isLoadingChat,
+    isLoadingMessages,
     isSending,
     error,
     loadConversations,
@@ -108,7 +108,7 @@ export function useXMTP() {
     connectXMTP,
 
     // Loading state
-    isLoading: isLoadingChat,
+    isLoading: isLoadingMessages,
     error
   }
 }

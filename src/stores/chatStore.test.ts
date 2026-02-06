@@ -54,7 +54,9 @@ describe('ChatStore', () => {
       conversations: [],
       messages: new Map(),
       selectedConversationId: null,
-      isLoading: false,
+      isLoadingConversations: false,
+      isLoadingMessages: false,
+      isCreating: false,
       isSending: false,
       error: null,
       unreadTotal: 0,
@@ -70,7 +72,7 @@ describe('ChatStore', () => {
       expect(state.conversations).toEqual([])
       expect(state.messages.size).toBe(0)
       expect(state.selectedConversationId).toBeNull()
-      expect(state.isLoading).toBe(false)
+      expect(state.isLoadingConversations).toBe(false)
       expect(state.isSending).toBe(false)
       expect(state.error).toBeNull()
       expect(state.unreadTotal).toBe(0)
@@ -101,7 +103,7 @@ describe('ChatStore', () => {
       expect(state.conversations.length).toBe(1)
       expect(state.conversations[0].id).toBe('conv-1')
       expect(state.conversations[0].isGroup).toBe(false)
-      expect(state.isLoading).toBe(false)
+      expect(state.isLoadingConversations).toBe(false)
     })
 
     it('should handle errors', async () => {
@@ -112,7 +114,7 @@ describe('ChatStore', () => {
 
       const state = useChatStore.getState()
       expect(state.error).toBe('Network error')
-      expect(state.isLoading).toBe(false)
+      expect(state.isLoadingConversations).toBe(false)
     })
   })
 

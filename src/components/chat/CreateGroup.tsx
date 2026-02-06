@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useBluesky } from '../../hooks/useBluesky'
 import { useXMTP } from '../../hooks/useXMTP'
-import { identityService } from '../../services/identity'
+import { resolveUsersToInboxIds } from '../../utils/resolveUsers'
+import { getErrorMessage } from '../../utils/errors'
 import type { BlueskyProfile } from '../../types'
 import { Avatar } from '../shared/Avatar'
 
@@ -72,25 +73,10 @@ export function CreateGroup({ onClose }: CreateGroupProps) {
     setError(null)
 
     try {
-      // Get inbox IDs for all selected users by resolving their DIDs
-      const inboxIds: string[] = []
-      const usersWithoutXMTP: string[] = []
+      const { inboxIds, unresolvedNames } = await resolveUsersToInboxIds(selectedUsers)
 
-      for (const user of selectedUsers) {
-        // Try local cache first, then resolve via ATProto
-        let inboxId = identityService.getInboxIdFromDid(user.did)
-        if (!inboxId) {
-          inboxId = await identityService.resolveDidToInbox(user.did) || undefined
-        }
-        if (inboxId) {
-          inboxIds.push(inboxId)
-        } else {
-          usersWithoutXMTP.push(user.displayName || user.handle)
-        }
-      }
-
-      if (usersWithoutXMTP.length > 0) {
-        setError(`Not on chat yet: ${usersWithoutXMTP.join(', ')}`)
+      if (unresolvedNames.length > 0) {
+        setError(`Not on chat yet: ${unresolvedNames.join(', ')}`)
         setIsCreating(false)
         return
       }
@@ -104,7 +90,7 @@ export function CreateGroup({ onClose }: CreateGroupProps) {
       await createGroup(inboxIds, groupName.trim() || undefined)
       onClose()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create group')
+      setError(getErrorMessage(err, 'Failed to create group'))
     } finally {
       setIsCreating(false)
     }

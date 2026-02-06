@@ -11,6 +11,9 @@ import { useXMTP } from '../../../hooks/useXMTP'
 import { useChatStore } from '../../../stores/chatStore'
 import { useAuthStore } from '../../../stores/authStore'
 import { identityService } from '../../../services/identity'
+import { useXmtpStatusChecker } from '../../../hooks/useXmtpStatusChecker'
+import { resolveUsersToInboxIds } from '../../../utils/resolveUsers'
+import { getErrorMessage } from '../../../utils/errors'
 import type { BlueskyProfile } from '../../../types'
 
 interface NewConversationProviderBridgeProps {
@@ -28,7 +31,7 @@ export function NewConversationProviderBridge({ children, onClose }: NewConversa
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedUsers, setSelectedUsers] = useState<BlueskyProfile[]>([])
   const [groupName, setGroupName] = useState('')
-  const [xmtpStatus, setXmtpStatus] = useState<Map<string, XmtpUserStatus>>(new Map())
+  const { xmtpStatus, checkXmtpStatus } = useXmtpStatusChecker()
   const [isCreating, setIsCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -47,20 +50,6 @@ export function NewConversationProviderBridge({ children, onClose }: NewConversa
   const { conversations, selectConversation } = useChatStore()
   const { blueskyProfile: currentUser } = useAuthStore()
 
-  // Check XMTP status for a user (identity service handles caching and deduping)
-  const checkXmtpStatus = useCallback(async (user: BlueskyProfile) => {
-    // Show checking state immediately
-    setXmtpStatus(prev => {
-      if (prev.get(user.did) === 'checking' || prev.get(user.did) === 'verified' || prev.get(user.did) === 'not-on-chat') {
-        return prev // Don't flash "checking" if we already have a status
-      }
-      return new Map(prev).set(user.did, 'checking')
-    })
-
-    const status = await identityService.checkXmtpStatus(user.did)
-    setXmtpStatus(prev => new Map(prev).set(user.did, status))
-  }, [])
-
   // Load following and followers on mount
   useEffect(() => {
     loadFollowing()
@@ -68,6 +57,7 @@ export function NewConversationProviderBridge({ children, onClose }: NewConversa
   }, [])
 
   // Check XMTP status for displayed users
+  // Identity service handles caching and dedup, so calling for every user on each run is safe
   useEffect(() => {
     const currentList = listMode === 'following' ? following : followers
     const displayList = searchQuery.trim() ? searchResults : currentList
@@ -154,10 +144,7 @@ export function NewConversationProviderBridge({ children, onClose }: NewConversa
     try {
       if (mode === 'dm') {
         const selectedUser = selectedUsers[0]
-        let inboxId = identityService.getInboxIdFromDid(selectedUser.did)
-        if (!inboxId) {
-          inboxId = await identityService.resolveDidToInbox(selectedUser.did) || undefined
-        }
+        const inboxId = await identityService.resolveDidToInboxCached(selectedUser.did)
 
         if (!inboxId) {
           setError('This user hasn\'t set up chat yet')
@@ -167,23 +154,10 @@ export function NewConversationProviderBridge({ children, onClose }: NewConversa
 
         await createDm(inboxId, selectedUser)
       } else {
-        const inboxIds: string[] = []
-        const usersWithoutXMTP: string[] = []
+        const { inboxIds, unresolvedNames } = await resolveUsersToInboxIds(selectedUsers)
 
-        for (const user of selectedUsers) {
-          let inboxId = identityService.getInboxIdFromDid(user.did)
-          if (!inboxId) {
-            inboxId = await identityService.resolveDidToInbox(user.did) || undefined
-          }
-          if (inboxId) {
-            inboxIds.push(inboxId)
-          } else {
-            usersWithoutXMTP.push(user.displayName || user.handle)
-          }
-        }
-
-        if (usersWithoutXMTP.length > 0) {
-          setError(`Not on chat yet: ${usersWithoutXMTP.join(', ')}`)
+        if (unresolvedNames.length > 0) {
+          setError(`Not on chat yet: ${unresolvedNames.join(', ')}`)
           setIsCreating(false)
           return
         }
@@ -192,7 +166,7 @@ export function NewConversationProviderBridge({ children, onClose }: NewConversa
       }
       onClose()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to start conversation')
+      setError(getErrorMessage(err, 'Failed to start conversation'))
     } finally {
       setIsCreating(false)
     }
@@ -204,7 +178,7 @@ export function NewConversationProviderBridge({ children, onClose }: NewConversa
   const sortedList = useMemo(() => {
     const statusPriority = (status: XmtpUserStatus | undefined): number => {
       if (status === 'verified') return 0
-      if (status === 'checking') return 1
+      if (status === 'checking' || status === undefined) return 1
       return 2
     }
     return [...currentList].sort((a, b) => {

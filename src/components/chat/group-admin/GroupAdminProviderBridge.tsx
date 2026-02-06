@@ -10,6 +10,9 @@ import { xmtpService } from '../../../services/xmtp'
 import { blueskyService } from '../../../services/bluesky'
 import { identityService } from '../../../services/identity'
 import { useChatStore } from '../../../stores/chatStore'
+import { useXmtpStatusChecker } from '../../../hooks/useXmtpStatusChecker'
+import { resolveUsersToInboxIds } from '../../../utils/resolveUsers'
+import { getErrorMessage } from '../../../utils/errors'
 import type { BlueskyProfile } from '../../../types'
 import type { Group } from '@xmtp/browser-sdk'
 
@@ -24,7 +27,7 @@ interface GroupAdminProviderBridgeProps {
 }
 
 export function GroupAdminProviderBridge({ children, groupId, onClose }: GroupAdminProviderBridgeProps) {
-  const { loadConversations } = useChatStore()
+  const { loadConversations, loadMessages } = useChatStore()
 
   // Group state
   const [group, setGroup] = useState<Group | null>(null)
@@ -40,6 +43,7 @@ export function GroupAdminProviderBridge({ children, groupId, onClose }: GroupAd
   const [draftImagePreview, setDraftImagePreview] = useState<string | null>(null)
   const [memberSearchQuery, setMemberSearchQuery] = useState('')
   const [selectedMembersToAdd, setSelectedMembersToAdd] = useState<BlueskyProfile[]>([])
+  const { xmtpStatus, checkXmtpStatus } = useXmtpStatusChecker()
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -188,6 +192,7 @@ export function GroupAdminProviderBridge({ children, groupId, onClose }: GroupAd
   }, [])
 
   const handleToggleMemberToAdd = useCallback((profile: BlueskyProfile) => {
+    // Guard is handled by the UI (disabled={!canMessage}), so only use functional updates
     setSelectedMembersToAdd((prev) => {
       const exists = prev.some((u) => u.did === profile.did)
       if (exists) {
@@ -243,7 +248,7 @@ export function GroupAdminProviderBridge({ children, groupId, onClose }: GroupAd
       setDraftImagePreview(null)
     } catch (err) {
       console.error('Failed to save metadata:', err)
-      setError(err instanceof Error ? err.message : 'Failed to save changes')
+      setError(getErrorMessage(err, 'Failed to save changes'))
     } finally {
       setIsSaving(false)
     }
@@ -256,23 +261,10 @@ export function GroupAdminProviderBridge({ children, groupId, onClose }: GroupAd
     setError(null)
 
     try {
-      const inboxIds: string[] = []
-      const usersWithoutXMTP: string[] = []
+      const { inboxIds, unresolvedNames } = await resolveUsersToInboxIds(selectedMembersToAdd)
 
-      for (const user of selectedMembersToAdd) {
-        let inboxId = identityService.getInboxIdFromDid(user.did)
-        if (!inboxId) {
-          inboxId = await identityService.resolveDidToInbox(user.did) || undefined
-        }
-        if (inboxId) {
-          inboxIds.push(inboxId)
-        } else {
-          usersWithoutXMTP.push(user.displayName || user.handle)
-        }
-      }
-
-      if (usersWithoutXMTP.length > 0) {
-        setError(`Not on chat yet: ${usersWithoutXMTP.join(', ')}`)
+      if (unresolvedNames.length > 0) {
+        setError(`Not on chat yet: ${unresolvedNames.join(', ')}`)
         setIsSaving(false)
         return
       }
@@ -282,19 +274,20 @@ export function GroupAdminProviderBridge({ children, groupId, onClose }: GroupAd
       // Reload members
       await loadMembers(group)
 
-      // Reload conversations to reflect member count change
+      // Reload conversations and messages so the system message appears with correct names
       await loadConversations()
+      await loadMessages(groupId)
 
       setEditMode('view')
       setSelectedMembersToAdd([])
       setMemberSearchQuery('')
     } catch (err) {
       console.error('Failed to add members:', err)
-      setError(err instanceof Error ? err.message : 'Failed to add members')
+      setError(getErrorMessage(err, 'Failed to add members'))
     } finally {
       setIsSaving(false)
     }
-  }, [group, selectedMembersToAdd, loadMembers, loadConversations])
+  }, [group, groupId, selectedMembersToAdd, loadMembers, loadConversations, loadMessages])
 
   const handleRemoveMember = useCallback(async (inboxId: string) => {
     if (!group) return
@@ -307,7 +300,7 @@ export function GroupAdminProviderBridge({ children, groupId, onClose }: GroupAd
       await loadConversations()
     } catch (err) {
       console.error('Failed to remove member:', err)
-      setError(err instanceof Error ? err.message : 'Failed to remove member')
+      setError(getErrorMessage(err, 'Failed to remove member'))
     }
   }, [group, loadMembers, loadConversations])
 
@@ -321,7 +314,7 @@ export function GroupAdminProviderBridge({ children, groupId, onClose }: GroupAd
       await loadMembers(group)
     } catch (err) {
       console.error('Failed to promote to admin:', err)
-      setError(err instanceof Error ? err.message : 'Failed to promote to admin')
+      setError(getErrorMessage(err, 'Failed to promote to admin'))
     }
   }, [group, loadMembers])
 
@@ -335,7 +328,7 @@ export function GroupAdminProviderBridge({ children, groupId, onClose }: GroupAd
       await loadMembers(group)
     } catch (err) {
       console.error('Failed to demote from admin:', err)
-      setError(err instanceof Error ? err.message : 'Failed to demote from admin')
+      setError(getErrorMessage(err, 'Failed to demote from admin'))
     }
   }, [group, loadMembers])
 
@@ -349,7 +342,7 @@ export function GroupAdminProviderBridge({ children, groupId, onClose }: GroupAd
       await loadMembers(group)
     } catch (err) {
       console.error('Failed to promote to super admin:', err)
-      setError(err instanceof Error ? err.message : 'Failed to promote to super admin')
+      setError(getErrorMessage(err, 'Failed to promote to super admin'))
     }
   }, [group, loadMembers])
 
@@ -363,7 +356,7 @@ export function GroupAdminProviderBridge({ children, groupId, onClose }: GroupAd
       await loadMembers(group)
     } catch (err) {
       console.error('Failed to demote from super admin:', err)
-      setError(err instanceof Error ? err.message : 'Failed to demote from super admin')
+      setError(getErrorMessage(err, 'Failed to demote from super admin'))
     }
   }, [group, loadMembers])
 
@@ -381,6 +374,7 @@ export function GroupAdminProviderBridge({ children, groupId, onClose }: GroupAd
       draftImagePreview,
       memberSearchQuery,
       selectedMembersToAdd,
+      xmtpStatus,
       isSaving,
       isLoadingMembers,
       error
@@ -393,6 +387,7 @@ export function GroupAdminProviderBridge({ children, groupId, onClose }: GroupAd
       setMemberSearchQuery,
       toggleMemberToAdd: handleToggleMemberToAdd,
       removeMemberToAdd: handleRemoveMemberToAdd,
+      checkXmtpStatus,
       saveMetadata: handleSaveMetadata,
       addMembers: handleAddMembers,
       removeMember: handleRemoveMember,
@@ -418,6 +413,7 @@ export function GroupAdminProviderBridge({ children, groupId, onClose }: GroupAd
     draftImagePreview,
     memberSearchQuery,
     selectedMembersToAdd,
+    xmtpStatus,
     isSaving,
     isLoadingMembers,
     error,
@@ -427,6 +423,7 @@ export function GroupAdminProviderBridge({ children, groupId, onClose }: GroupAd
     handleSetDraftImage,
     handleToggleMemberToAdd,
     handleRemoveMemberToAdd,
+    checkXmtpStatus,
     handleSaveMetadata,
     handleAddMembers,
     handleRemoveMember,

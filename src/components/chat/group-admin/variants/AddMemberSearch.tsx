@@ -5,8 +5,8 @@ import { Avatar } from '../../../shared/Avatar'
 
 export function AddMemberSearch() {
   const { state, actions, meta } = useGroupAdmin()
-  const { editMode, memberSearchQuery, selectedMembersToAdd } = state
-  const { setMemberSearchQuery, toggleMemberToAdd, removeMemberToAdd } = actions
+  const { editMode, memberSearchQuery, selectedMembersToAdd, xmtpStatus } = state
+  const { setMemberSearchQuery, toggleMemberToAdd, removeMemberToAdd, checkXmtpStatus } = actions
   const { members } = meta
 
   const {
@@ -42,6 +42,17 @@ export function AddMemberSearch() {
 
     return () => clearTimeout(timer)
   }, [memberSearchQuery, editMode, searchUsers, clearSearch])
+
+  // Check XMTP status for displayed users
+  // Identity service handles caching and dedup, so calling for every user on each run is safe
+  useEffect(() => {
+    if (editMode !== 'add-member') return
+
+    const displayList = memberSearchQuery.trim() ? searchResults : followers
+    displayList.forEach(user => {
+      checkXmtpStatus(user)
+    })
+  }, [editMode, followers, searchResults, memberSearchQuery, checkXmtpStatus])
 
   if (editMode !== 'add-member') {
     return null
@@ -151,15 +162,21 @@ export function AddMemberSearch() {
             <div className="space-y-0.5">
               {displayList.map((user) => {
                 const isSelected = selectedMembersToAdd.some((u) => u.did === user.did)
+                const status = xmtpStatus.get(user.did)
+                const canMessage = status === 'verified'
+                const isChecking = status === 'checking' || status === undefined
 
                 return (
                   <button
                     key={user.did}
                     onClick={() => toggleMemberToAdd(user)}
+                    disabled={!canMessage}
                     className={`w-full p-3 flex items-center gap-3 rounded-xl transition-all text-left ${
-                      isSelected
-                        ? 'bg-[var(--color-surface-selected)]'
-                        : 'hover:bg-[var(--color-surface-hover)]'
+                      !canMessage
+                        ? 'opacity-50 cursor-not-allowed'
+                        : isSelected
+                          ? 'bg-[var(--color-surface-selected)]'
+                          : 'hover:bg-[var(--color-surface-hover)]'
                     }`}
                   >
                     <Avatar
@@ -175,19 +192,25 @@ export function AddMemberSearch() {
                         @{user.handle}
                       </p>
                     </div>
-                    <div
-                      className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${
-                        isSelected
-                          ? 'bg-[var(--color-bsky-500)] border-[var(--color-bsky-500)]'
-                          : 'border-[var(--color-border)]'
-                      }`}
-                    >
-                      {isSelected && (
-                        <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                        </svg>
-                      )}
-                    </div>
+                    {isChecking ? (
+                      <div className="w-4 h-4 rounded-full border-2 border-[var(--color-text-tertiary)] border-t-transparent animate-spin" />
+                    ) : canMessage ? (
+                      <div
+                        className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${
+                          isSelected
+                            ? 'bg-[var(--color-bsky-500)] border-[var(--color-bsky-500)]'
+                            : 'border-[var(--color-border)]'
+                        }`}
+                      >
+                        {isSelected && (
+                          <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </div>
+                    ) : status === 'not-on-chat' ? (
+                      <span className="text-[11px] text-[var(--color-text-tertiary)]">Not on chat</span>
+                    ) : null}
                   </button>
                 )
               })}
