@@ -38,4 +38,6 @@ linux:
   category: Network
 publish:
   provider: github
+  owner: xmtplabs
+  repo: bluesky-chat
 generateUpdatesFilesForAllChannels: true

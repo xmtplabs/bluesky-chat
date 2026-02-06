@@ -147,10 +147,14 @@ export function initAutoUpdater(mainWindow: BrowserWindow): void {
   })
 
   autoUpdater.on('error', (error: Error) => {
-    // Only send errors for user-initiated actions, not background checks
-    // Also ignore 404 errors (release not found = no update available)
-    if (!mainWindow?.isDestroyed() && isUserInitiatedCheck && !error.message.includes('404')) {
-      mainWindow.webContents.send('update-error', error.message)
+    if (!mainWindow?.isDestroyed()) {
+      if (isUserInitiatedCheck && !error.message.includes('404')) {
+        mainWindow.webContents.send('update-error', error.message)
+      } else {
+        // Reset renderer status for suppressed errors (background checks, 404s)
+        // so the UI doesn't get stuck on "Checking..."
+        mainWindow.webContents.send('update-not-available')
+      }
     }
   })
 
