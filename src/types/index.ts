@@ -110,7 +110,7 @@ export interface ElectronAPI {
   // Auto-updater
   updaterCheck: () => Promise<{ success: boolean; updateInfo?: UpdateInfo; error?: string }>
   updaterDownload: () => Promise<{ success: boolean; error?: string }>
-  updaterInstall: () => void
+  updaterInstall: () => Promise<void>
   updaterGetBetaOptIn: () => Promise<boolean>
   updaterSetBetaOptIn: (enabled: boolean) => Promise<{ success: boolean }>
   onUpdateChecking: (callback: () => void) => void
