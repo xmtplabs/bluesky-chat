@@ -4,6 +4,9 @@ import type { ElectronAPI } from '../src/types'
 const electronAPI: ElectronAPI = {
   // Build mode
   getBuildMode: () => ipcRenderer.invoke('get-build-mode'),
+  // Storage diagnostics
+  getStorageDiagnostics: () => ipcRenderer.invoke('get-storage-diagnostics'),
+
   // Secure storage
   secureStore: (key: string, value: string) => ipcRenderer.invoke('secure-store', key, value),
   secureRetrieve: (key: string) => ipcRenderer.invoke('secure-retrieve', key),

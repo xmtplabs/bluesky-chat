@@ -32,18 +32,32 @@ class BlueskyService {
         redirectUri = 'http://127.0.0.1/oauth/callback'
       }
 
+      console.log('[bluesky] OAuth init - protocol:', loc.protocol, 'redirectUri:', redirectUri)
+
       const clientId = buildAtprotoLoopbackClientId({
         scope: 'atproto transition:generic',
         redirect_uris: [redirectUri]
       })
+
+      // Check IndexedDB state BEFORE loading OAuth client
+      try {
+        const databases = await indexedDB.databases()
+        const oauthDb = databases.find(db => db.name === '@atproto-oauth-client')
+        console.log('[bluesky] IndexedDB @atproto-oauth-client exists:', !!oauthDb, oauthDb ? `(version ${oauthDb.version})` : '')
+      } catch (e) {
+        console.warn('[bluesky] Could not check IndexedDB:', e)
+      }
 
       this.oauthClient = await BrowserOAuthClient.load({
         clientId,
         handleResolver: 'https://bsky.social'
       })
 
+      console.log('[bluesky] OAuth client loaded successfully')
+
       // Try to restore existing session
-      await this.tryRestoreSession()
+      const restored = await this.tryRestoreSession()
+      console.log('[bluesky] Session restore result:', restored)
     } catch (error) {
       console.warn('OAuth client initialization failed:', error)
       console.warn('Error details:', error instanceof Error ? error.stack : error)
@@ -56,15 +70,30 @@ class BlueskyService {
     if (!this.oauthClient) return false
 
     try {
+      const storedSub = localStorage.getItem('@@atproto/oauth-client-browser(sub)')
+      console.log('[bluesky] Attempting session restore via oauthClient.init()...')
+      console.log('[bluesky] Stored sub (DID) in localStorage:', storedSub || 'NONE — this is why restore fails!')
       const result = await this.oauthClient.init()
+      console.log('[bluesky] oauthClient.init() returned:', {
+        hasResult: !!result,
+        hasSession: !!result?.session,
+        resultKeys: result ? Object.keys(result) : []
+      })
       if (result?.session) {
         this.session = result.session
         // Create Agent directly from OAuth session
         this.agent = new Agent(result.session)
+        console.log('[bluesky] Session restored successfully')
         return true
       }
+      console.log('[bluesky] No session to restore (init returned null/empty)')
     } catch (error) {
-      console.error('Failed to restore Bluesky session:', error)
+      console.error('[bluesky] Session restore FAILED:', error)
+      console.error('[bluesky] Error type:', error?.constructor?.name)
+      if (error instanceof Error) {
+        console.error('[bluesky] Error message:', error.message)
+        console.error('[bluesky] Error stack:', error.stack)
+      }
     }
 
     return false
@@ -114,8 +143,15 @@ class BlueskyService {
     const { session } = await this.oauthClient.callback(callbackParams)
     this.session = session
 
-    // Create Agent directly from OAuth session - this is the key fix!
-    // The Agent class accepts an OAuthSession and uses it for authenticated requests
+    // Save the sub (DID) to localStorage so initRestore() can find it on next launch.
+    // The BrowserOAuthClient.initCallback() normally does this, but our Electron flow
+    // uses a separate auth window + IPC, bypassing initCallback(). Without this,
+    // the OAuth client can't restore the session and the user must re-login every time.
+    // NOTE: This key is an internal detail of @atproto/oauth-client-browser@0.3.40.
+    // If the library changes this key, session restore will break. Pin or audit on upgrade.
+    localStorage.setItem('@@atproto/oauth-client-browser(sub)', session.sub)
+
+    // Create Agent directly from OAuth session
     this.agent = new Agent(session)
 
     // Fetch and return profile
@@ -432,6 +468,10 @@ class BlueskyService {
         console.error('Error logging out agent:', error)
       }
     }
+
+    // Clear the session sub from localStorage (the OAuth client's 'deleted' event
+    // should also do this, but clear explicitly for safety)
+    localStorage.removeItem('@@atproto/oauth-client-browser(sub)')
 
     this.agent = null
     this.session = null

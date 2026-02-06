@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, Menu, Notification, shell, nativeImage, protocol, net } from 'electron'
 import { join } from 'path'
 import { pathToFileURL } from 'url'
+import { existsSync, readdirSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 
 const iconPath = join(__dirname, '../../build/icon.png')
@@ -359,6 +360,23 @@ function createApplicationMenu(): void {
   Menu.setApplicationMenu(menu)
 }
 
+// Single instance lock — prevent multiple instances from fighting over storage locks.
+// When two instances share the same userData, the second one can't acquire LevelDB/SQLite
+// locks, causing all origin-scoped storage (localStorage, IndexedDB, OPFS) to fail.
+const gotTheLock = app.requestSingleInstanceLock()
+if (!gotTheLock) {
+  console.log('[main] Another instance is already running — quitting.')
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    // Focus the existing window when a second instance tries to launch
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.focus()
+    }
+  })
+}
+
 // App lifecycle
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.bluesky.chat')
@@ -428,6 +446,28 @@ if (process.defaultApp) {
 function setupIpcHandlers(): void {
   // Build mode
   ipcMain.handle('get-build-mode', () => buildMode)
+
+  // Storage diagnostics
+  ipcMain.handle('get-storage-diagnostics', async () => {
+    const userDataPath = app.getPath('userData')
+    const secureStoragePath = join(userDataPath, 'secure-storage')
+    let secureStorageFiles: string[] = []
+    try {
+      if (existsSync(secureStoragePath)) {
+        secureStorageFiles = readdirSync(secureStoragePath).map(f => String(f))
+      }
+    } catch {
+      // ignore
+    }
+    return {
+      userDataPath,
+      secureStorageFiles,
+      electronVersion: process.versions.electron,
+      chromiumVersion: process.versions.chrome,
+      appName: app.getName(),
+      appPath: app.getAppPath()
+    }
+  })
 
   // Secure storage - only allow XMTP wallet keys
   const ALLOWED_STORAGE_KEY_PREFIX = 'xmtp-wallet-key-'
