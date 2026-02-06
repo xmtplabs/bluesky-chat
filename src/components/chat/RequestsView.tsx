@@ -1,6 +1,7 @@
 import { useConversations } from '../../hooks/useConversations'
 import type { ChatConversation } from '../../types'
 import { Avatar } from '../shared/Avatar'
+import { getGroupMemberNames } from '../../utils/format'
 
 interface RequestsViewProps {
   onClose: () => void
@@ -104,7 +105,7 @@ interface RequestItemProps {
 
 function RequestItem({ conversation, onAccept, onView, onBlock }: RequestItemProps) {
   const displayName = conversation.isGroup
-    ? conversation.groupName || 'Group Chat'
+    ? conversation.groupName || getGroupMemberNames(conversation.groupMembers)
     : conversation.peerProfile?.displayName ||
       conversation.peerProfile?.handle ||
       shortenAddress(conversation.peerAddress)

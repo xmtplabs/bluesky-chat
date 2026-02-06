@@ -2,6 +2,7 @@ import { useChat } from './context/ChatContext'
 import { useUIStore } from '../../stores/uiStore'
 import { UserLockup } from '../shared/UserLockup'
 import { Avatar } from '../shared/Avatar'
+import { getGroupMemberNames } from '../../utils/format'
 
 /**
  * Chat header component - shows conversation name, avatar, and metadata
@@ -42,7 +43,7 @@ export function ChatHeader() {
 
   // For groups or DMs without profile, render manually
   const displayName = conversation.isGroup
-    ? conversation.groupName || 'Group Chat'
+    ? conversation.groupName || getGroupMemberNames(conversation.groupMembers)
     : conversation.peerProfile?.displayName ||
       conversation.peerProfile?.handle ||
       'Unknown'
