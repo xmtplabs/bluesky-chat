@@ -33,6 +33,7 @@ export interface ChatConversation {
   groupDescription?: string
   groupImageUrl?: string
   groupMembers?: string[]
+  consentState: 'unknown' | 'allowed' | 'denied'
 }
 
 export interface ChatMessage {

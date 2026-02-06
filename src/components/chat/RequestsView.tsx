@@ -7,12 +7,16 @@ interface RequestsViewProps {
 }
 
 export function RequestsView({ onClose }: RequestsViewProps) {
-  const { requests, select, acceptRequest } = useConversations()
+  const { requests, select, acceptRequest, denyRequest } = useConversations()
 
   const handleAccept = (conversationId: string) => {
     acceptRequest(conversationId)
     select(conversationId)
     onClose()
+  }
+
+  const handleBlock = (conversationId: string) => {
+    denyRequest(conversationId)
   }
 
   const handleView = (conversationId: string) => {
@@ -80,6 +84,7 @@ export function RequestsView({ onClose }: RequestsViewProps) {
                   conversation={conversation}
                   onAccept={() => handleAccept(conversation.id)}
                   onView={() => handleView(conversation.id)}
+                  onBlock={() => handleBlock(conversation.id)}
                 />
               ))}
             </div>
@@ -94,9 +99,10 @@ interface RequestItemProps {
   conversation: ChatConversation
   onAccept: () => void
   onView: () => void
+  onBlock: () => void
 }
 
-function RequestItem({ conversation, onAccept, onView }: RequestItemProps) {
+function RequestItem({ conversation, onAccept, onView, onBlock }: RequestItemProps) {
   const displayName = conversation.isGroup
     ? conversation.groupName || 'Group Chat'
     : conversation.peerProfile?.displayName ||
@@ -158,6 +164,12 @@ function RequestItem({ conversation, onAccept, onView }: RequestItemProps) {
               className="flex-1 py-2 px-4 bg-[var(--color-surface-secondary)] hover:bg-[var(--color-surface-tertiary)] text-[var(--color-text-primary)] text-[13px] font-medium rounded-full transition-all duration-200 border border-[var(--color-border)]"
             >
               View
+            </button>
+            <button
+              onClick={onBlock}
+              className="py-2 px-4 text-red-500 hover:bg-red-500/10 text-[13px] font-medium rounded-full transition-all duration-200"
+            >
+              Block
             </button>
           </div>
         </div>

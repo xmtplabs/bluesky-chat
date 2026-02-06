@@ -20,7 +20,7 @@ export function ConversationProviderBridge({
   searchQuery = '',
   onSearchChange
 }: ConversationProviderBridgeProps) {
-  const { primary, requests, requestCount, selectedId, isLoading, select, acceptRequest } = useConversations()
+  const { primary, requests, requestCount, selectedId, isLoading, select, acceptRequest, denyRequest } = useConversations()
 
   const conversations = filter === 'requests' ? requests : primary
 
@@ -58,13 +58,14 @@ export function ConversationProviderBridge({
     actions: {
       select,
       search: handleSearch,
-      acceptRequest
+      acceptRequest,
+      denyRequest
     },
     meta: {
       isLoading,
       requestCount
     }
-  }), [filteredConversations, selectedId, filter, searchQuery, select, handleSearch, acceptRequest, isLoading, requestCount])
+  }), [filteredConversations, selectedId, filter, searchQuery, select, handleSearch, acceptRequest, denyRequest, isLoading, requestCount])
 
   return (
     <ConversationProvider value={contextValue}>

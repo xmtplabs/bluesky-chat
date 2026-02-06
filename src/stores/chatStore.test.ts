@@ -17,13 +17,20 @@ vi.mock('../services/xmtp', () => ({
     getGroupImageUrl: vi.fn().mockReturnValue(undefined),
     isGroup: vi.fn().mockReturnValue(false),
     streamMessages: vi.fn(),
-    stopStreaming: vi.fn()
+    stopStreaming: vi.fn(),
+    setConsentState: vi.fn().mockResolvedValue(undefined)
+  },
+  ConsentState: {
+    Allowed: 1,
+    Denied: 2,
+    Unknown: 0
   }
 }))
 
 vi.mock('../services/bluesky', () => ({
   blueskyService: {
-    getProfile: vi.fn()
+    getProfile: vi.fn(),
+    getDid: vi.fn().mockReturnValue(undefined)
   }
 }))
 
@@ -32,7 +39,15 @@ vi.mock('../services/identity', () => ({
     getAddressFromDid: vi.fn(),
     getDidFromInboxId: vi.fn().mockReturnValue(undefined),
     getCachedProfile: vi.fn().mockReturnValue(undefined),
-    cacheProfile: vi.fn()
+    cacheProfile: vi.fn(),
+    registerIndexedMapping: vi.fn(),
+    bulkResolveInboxToDid: vi.fn().mockResolvedValue(new Map())
+  }
+}))
+
+vi.mock('./profileStore', () => ({
+  useProfileStore: {
+    getState: vi.fn().mockReturnValue({ followingDids: new Set() })
   }
 }))
 
@@ -59,9 +74,7 @@ describe('ChatStore', () => {
       isCreating: false,
       isSending: false,
       error: null,
-      unreadTotal: 0,
-      acceptedRequests: new Set(),
-      initiatedConversations: new Set()
+      unreadTotal: 0
     })
   })
 
@@ -80,11 +93,12 @@ describe('ChatStore', () => {
   })
 
   describe('loadConversations', () => {
-    it('should load and transform conversations', async () => {
+    it('should load and transform conversations with consent state', async () => {
       const mockConversations = [
         {
           id: 'conv-1',
           metadata: {},
+          consentState: vi.fn().mockResolvedValue(1), // ConsentState.Allowed
           lastMessage: vi.fn().mockResolvedValue({ content: 'Hello', sentAtNs: BigInt(1000000000) })
         }
       ]
@@ -103,7 +117,38 @@ describe('ChatStore', () => {
       expect(state.conversations.length).toBe(1)
       expect(state.conversations[0].id).toBe('conv-1')
       expect(state.conversations[0].isGroup).toBe(false)
+      expect(state.conversations[0].consentState).toBe('allowed')
       expect(state.isLoadingConversations).toBe(false)
+    })
+
+    it('should filter out denied conversations', async () => {
+      const mockConversations = [
+        {
+          id: 'conv-allowed',
+          metadata: {},
+          consentState: vi.fn().mockResolvedValue(1), // Allowed
+          lastMessage: vi.fn().mockResolvedValue(null)
+        },
+        {
+          id: 'conv-denied',
+          metadata: {},
+          consentState: vi.fn().mockResolvedValue(2), // Denied
+          lastMessage: vi.fn().mockResolvedValue(null)
+        }
+      ]
+
+      vi.mocked(xmtpService.getConversations).mockResolvedValueOnce(mockConversations as any)
+      vi.mocked(xmtpService.getMembers).mockResolvedValue([
+        { inboxId: 'my-inbox-id' },
+        { inboxId: 'peer-inbox-id' }
+      ] as any)
+
+      const { loadConversations } = useChatStore.getState()
+      await loadConversations()
+
+      const state = useChatStore.getState()
+      expect(state.conversations.length).toBe(1)
+      expect(state.conversations[0].id).toBe('conv-allowed')
     })
 
     it('should handle errors', async () => {
@@ -189,7 +234,7 @@ describe('ChatStore', () => {
       useChatStore.setState({
         selectedConversationId: 'conv-1',
         conversations: [
-          { id: 'conv-1', topic: 'topic-1', peerAddress: '0x1', unreadCount: 0, isGroup: false }
+          { id: 'conv-1', topic: 'topic-1', peerAddress: '0x1', unreadCount: 0, isGroup: false, consentState: 'allowed' }
         ]
       })
 
@@ -204,7 +249,7 @@ describe('ChatStore', () => {
   })
 
   describe('createDm', () => {
-    it('should create DM and add to conversations', async () => {
+    it('should create DM, set consent, and add to conversations', async () => {
       const mockConversation = { id: 'new-conv-1' }
       vi.mocked(xmtpService.createDm).mockResolvedValueOnce(mockConversation as any)
 
@@ -212,9 +257,11 @@ describe('ChatStore', () => {
       const convId = await createDm('peer-inbox-id')
 
       expect(convId).toBe('new-conv-1')
+      expect(xmtpService.setConsentState).toHaveBeenCalledWith('new-conv-1', 1) // ConsentState.Allowed
 
       const state = useChatStore.getState()
       expect(state.conversations.length).toBe(1)
+      expect(state.conversations[0].consentState).toBe('allowed')
       expect(state.selectedConversationId).toBe('new-conv-1')
     })
 
@@ -230,26 +277,77 @@ describe('ChatStore', () => {
   })
 
   describe('createGroup', () => {
-    it('should create group with members', async () => {
+    it('should create group with consent and members', async () => {
       const mockConversation = { id: 'group-conv-1' }
       vi.mocked(xmtpService.createGroup).mockResolvedValueOnce(mockConversation as any)
 
       const { createGroup } = useChatStore.getState()
-      // createGroup now accepts inbox IDs directly (not addresses)
       const convId = await createGroup(['inbox-1', 'inbox-2'], 'Test Group')
 
       expect(convId).toBe('group-conv-1')
+      expect(xmtpService.setConsentState).toHaveBeenCalledWith('group-conv-1', 1) // ConsentState.Allowed
 
       const state = useChatStore.getState()
       expect(state.conversations.length).toBe(1)
       expect(state.conversations[0].isGroup).toBe(true)
       expect(state.conversations[0].groupName).toBe('Test Group')
+      expect(state.conversations[0].consentState).toBe('allowed')
     })
 
     it('should handle no valid members', async () => {
       const { createGroup } = useChatStore.getState()
-      // Empty inbox IDs array should throw
       await expect(createGroup([], 'Test')).rejects.toThrow('No valid XMTP members')
+    })
+  })
+
+  describe('acceptRequest', () => {
+    it('should set consent to allowed and update conversation state', async () => {
+      useChatStore.setState({
+        conversations: [
+          { id: 'conv-1', topic: 't1', peerAddress: '0x1', unreadCount: 0, isGroup: false, consentState: 'unknown' }
+        ]
+      })
+
+      const { acceptRequest } = useChatStore.getState()
+      await acceptRequest('conv-1')
+
+      expect(xmtpService.setConsentState).toHaveBeenCalledWith('conv-1', 1) // ConsentState.Allowed
+      const state = useChatStore.getState()
+      expect(state.conversations[0].consentState).toBe('allowed')
+    })
+  })
+
+  describe('denyRequest', () => {
+    it('should set consent to denied and remove conversation', async () => {
+      useChatStore.setState({
+        conversations: [
+          { id: 'conv-1', topic: 't1', peerAddress: '0x1', unreadCount: 0, isGroup: false, consentState: 'unknown' },
+          { id: 'conv-2', topic: 't2', peerAddress: '0x2', unreadCount: 0, isGroup: false, consentState: 'allowed' }
+        ]
+      })
+
+      const { denyRequest } = useChatStore.getState()
+      await denyRequest('conv-1')
+
+      expect(xmtpService.setConsentState).toHaveBeenCalledWith('conv-1', 2) // ConsentState.Denied
+      const state = useChatStore.getState()
+      expect(state.conversations.length).toBe(1)
+      expect(state.conversations[0].id).toBe('conv-2')
+    })
+
+    it('should clear selection if denied conversation was selected', async () => {
+      useChatStore.setState({
+        conversations: [
+          { id: 'conv-1', topic: 't1', peerAddress: '0x1', unreadCount: 0, isGroup: false, consentState: 'unknown' }
+        ],
+        selectedConversationId: 'conv-1'
+      })
+
+      const { denyRequest } = useChatStore.getState()
+      await denyRequest('conv-1')
+
+      const state = useChatStore.getState()
+      expect(state.selectedConversationId).toBeNull()
     })
   })
 
@@ -257,8 +355,8 @@ describe('ChatStore', () => {
     it('should reset unread count for conversation', () => {
       useChatStore.setState({
         conversations: [
-          { id: 'conv-1', topic: 't1', peerAddress: '0x1', unreadCount: 5, isGroup: false },
-          { id: 'conv-2', topic: 't2', peerAddress: '0x2', unreadCount: 3, isGroup: false }
+          { id: 'conv-1', topic: 't1', peerAddress: '0x1', unreadCount: 5, isGroup: false, consentState: 'allowed' },
+          { id: 'conv-2', topic: 't2', peerAddress: '0x2', unreadCount: 3, isGroup: false, consentState: 'allowed' }
         ],
         unreadTotal: 8
       })

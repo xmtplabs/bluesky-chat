@@ -845,11 +845,17 @@ class XMTPService {
     await this.client.revokeAllOtherInstallations()
     verboseLog('All other installations revoked')
   }
+
+  async setConsentState(conversationId: string, state: ConsentState): Promise<void> {
+    const conv = await this.getConversation(conversationId)
+    if (!conv) throw new Error('Conversation not found')
+    await conv.updateConsentState(state)
+  }
 }
 
 export const xmtpService = new XMTPService()
 export type { XMTPConversation, GroupMember }
-export { Client }
+export { Client, ConsentState }
 
 /**
  * Convert base64 string to Uint8Array (browser-compatible)
