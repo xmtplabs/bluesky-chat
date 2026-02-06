@@ -9,7 +9,7 @@
  */
 
 // Backend URL - can be overridden via environment variable
-const BACKEND_URL = import.meta.env.VITE_MAPPING_BACKEND_URL ?? 'https://bluesky-chat-mapping-service.workers.dev'
+const BACKEND_URL = import.meta.env.VITE_MAPPING_BACKEND_URL ?? 'https://bluesky-chat-mapping-service.xmtp.workers.dev'
 
 // Circuit breaker configuration
 const CIRCUIT_BREAKER_THRESHOLD = 5 // Open after 5 consecutive failures
