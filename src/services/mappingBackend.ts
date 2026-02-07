@@ -6,6 +6,7 @@
  * - Exponential backoff on 429 rate limit responses
  * - Circuit breaker for backend failures
  * - Bulk lookup support for efficiency
+ * - Persistent retry queue for failed registrations
  */
 
 // Backend URL - can be overridden via environment variable
@@ -19,6 +20,10 @@ const CIRCUIT_BREAKER_RESET_MS = 60_000 // Try again after 1 minute
 const MAX_RETRIES = 3
 const INITIAL_BACKOFF_MS = 1000
 const MAX_BACKOFF_MS = 30_000
+
+// Pending registration retry
+const PENDING_REGISTRATIONS_KEY = 'pending-mapping-registrations'
+const RETRY_INTERVAL_MS = 30_000 // Retry pending registrations every 30s
 
 interface LookupResponse {
   did: string
@@ -48,6 +53,63 @@ class MappingBackendClient {
 
   // Rate limit backoff state
   private nextRequestAllowedAt = 0
+
+  // Persistent retry queue for failed registrations
+  private pendingRegistrations: Set<string> = new Set()
+
+  constructor() {
+    this.loadPendingRegistrations()
+    this.startRetryLoop()
+  }
+
+  private loadPendingRegistrations(): void {
+    try {
+      const stored = localStorage.getItem(PENDING_REGISTRATIONS_KEY)
+      if (stored) {
+        const parsed = JSON.parse(stored)
+        if (!Array.isArray(parsed)) return
+        for (const did of parsed) {
+          if (typeof did === 'string') this.pendingRegistrations.add(did)
+        }
+        if (this.pendingRegistrations.size > 0) {
+          console.log(`[MappingBackend] Loaded ${this.pendingRegistrations.size} pending registrations to retry`)
+        }
+      }
+    } catch {
+      // Ignore parse errors
+    }
+  }
+
+  private savePendingRegistrations(): void {
+    try {
+      if (this.pendingRegistrations.size === 0) {
+        localStorage.removeItem(PENDING_REGISTRATIONS_KEY)
+      } else {
+        localStorage.setItem(PENDING_REGISTRATIONS_KEY, JSON.stringify([...this.pendingRegistrations]))
+      }
+    } catch {
+      // Ignore storage errors
+    }
+  }
+
+  private startRetryLoop(): void {
+    setInterval(() => this.retryPendingRegistrations(), RETRY_INTERVAL_MS)
+  }
+
+  private async retryPendingRegistrations(): Promise<void> {
+    if (this.pendingRegistrations.size === 0) return
+    if (!this.canMakeRequest()) return
+
+    console.log(`[MappingBackend] Retrying ${this.pendingRegistrations.size} pending registrations`)
+    for (const did of [...this.pendingRegistrations]) {
+      const success = await this.doRegister({ did })
+      if (success) {
+        this.pendingRegistrations.delete(did)
+        this.savePendingRegistrations()
+      }
+      if (!this.canMakeRequest()) break
+    }
+  }
 
   /**
    * Lookup a DID to get its InboxId.
@@ -159,10 +221,23 @@ class MappingBackendClient {
   /**
    * Register a new DID↔InboxId mapping with the backend.
    * Called after publishing to ATProto.
+   * Failed registrations are persisted and retried automatically.
    */
   async registerMapping(params: RegisterRequest): Promise<boolean> {
+    const success = await this.doRegister(params)
+    if (success) {
+      if (this.pendingRegistrations.delete(params.did)) {
+        this.savePendingRegistrations()
+      }
+    } else {
+      this.pendingRegistrations.add(params.did)
+      this.savePendingRegistrations()
+    }
+    return success
+  }
+
+  private async doRegister(params: RegisterRequest): Promise<boolean> {
     if (!this.canMakeRequest()) {
-      console.log('[MappingBackend] Skipping register - circuit open or rate limited')
       return false
     }
 
@@ -178,12 +253,11 @@ class MappingBackendClient {
         return true
       }
 
-      // Not a success, but might not be a failure to track
+      // Client error - don't retry (bad DID, missing record, etc.)
       if (response.status === 400) {
-        // Client error - don't count as circuit breaker failure
         const error = await response.json().catch(() => ({})) as { error?: string }
         console.warn('[MappingBackend] Register rejected:', error.error)
-        return false
+        return true // Return true to remove from pending — retrying won't help
       }
 
       this.recordFailure()
