@@ -40,7 +40,7 @@ vi.mock('../services/identity', () => ({
     getDidFromInboxId: vi.fn().mockReturnValue(undefined),
     getCachedProfile: vi.fn().mockReturnValue(undefined),
     cacheProfile: vi.fn(),
-    registerIndexedMapping: vi.fn(),
+    cacheMapping: vi.fn(),
     bulkResolveInboxToDid: vi.fn().mockResolvedValue(new Map())
   }
 }))

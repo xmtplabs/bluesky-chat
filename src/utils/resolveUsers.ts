@@ -17,7 +17,7 @@ export async function resolveUsersToInboxIds(
   for (const user of users) {
     const inboxId = await identityService.resolveDidToInboxCached(user.did)
     if (inboxId) {
-      identityService.registerIndexedMapping(inboxId, user.did)
+      identityService.cacheMapping(inboxId, user.did)
       identityService.cacheProfile(user)
       inboxIds.push(inboxId)
     } else {

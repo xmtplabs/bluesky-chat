@@ -141,20 +141,20 @@ describe('IdentityService', () => {
     })
   })
 
-  describe('registerIndexedMapping', () => {
+  describe('cacheMapping', () => {
     beforeEach(async () => {
       await identityService.init()
       await identityService.clearAll()
     })
 
     it('should register a new inbox to DID mapping', () => {
-      identityService.registerIndexedMapping('inbox-new', 'did:plc:new')
+      identityService.cacheMapping('inbox-new', 'did:plc:new')
 
       expect(identityService.getDidFromInboxId('inbox-new')).toBe('did:plc:new')
     })
 
-    it('should persist indexed mappings to localStorage', () => {
-      identityService.registerIndexedMapping('inbox-persist', 'did:plc:persist')
+    it('should persist cached mappings to localStorage', () => {
+      identityService.cacheMapping('inbox-persist', 'did:plc:persist')
 
       expect(localStorage.setItem).toHaveBeenCalledWith(
         'jetstream-indexer-cache',
@@ -163,11 +163,11 @@ describe('IdentityService', () => {
     })
 
     it('should skip save if exact mapping already exists', () => {
-      identityService.registerIndexedMapping('inbox-x', 'did:plc:x')
+      identityService.cacheMapping('inbox-x', 'did:plc:x')
       vi.mocked(localStorage.setItem).mockClear()
 
       // Register same mapping again
-      identityService.registerIndexedMapping('inbox-x', 'did:plc:x')
+      identityService.cacheMapping('inbox-x', 'did:plc:x')
 
       // Should not call save for duplicate
       const cacheSaveCalls = vi.mocked(localStorage.setItem).mock.calls.filter(
@@ -178,11 +178,11 @@ describe('IdentityService', () => {
 
     it('should handle DID re-linked to new inbox (cleanup old inbox→DID mapping)', () => {
       // User initially links their DID to inbox-old
-      identityService.registerIndexedMapping('inbox-old', 'did:plc:user')
+      identityService.cacheMapping('inbox-old', 'did:plc:user')
       expect(identityService.getDidFromInboxId('inbox-old')).toBe('did:plc:user')
 
       // User re-links their DID to inbox-new
-      identityService.registerIndexedMapping('inbox-new', 'did:plc:user')
+      identityService.cacheMapping('inbox-new', 'did:plc:user')
 
       // New mapping should exist
       expect(identityService.getDidFromInboxId('inbox-new')).toBe('did:plc:user')
@@ -192,42 +192,42 @@ describe('IdentityService', () => {
 
     it('should handle inbox re-linked to new DID (cleanup old DID→inbox mapping)', () => {
       // Inbox initially linked to user-a
-      identityService.registerIndexedMapping('inbox-shared', 'did:plc:user-a')
+      identityService.cacheMapping('inbox-shared', 'did:plc:user-a')
       expect(identityService.getDidFromInboxId('inbox-shared')).toBe('did:plc:user-a')
 
       // Inbox re-linked to user-b (e.g., after key transfer)
-      identityService.registerIndexedMapping('inbox-shared', 'did:plc:user-b')
+      identityService.cacheMapping('inbox-shared', 'did:plc:user-b')
 
       // Inbox should now map to user-b
       expect(identityService.getDidFromInboxId('inbox-shared')).toBe('did:plc:user-b')
     })
   })
 
-  describe('unregisterIndexedMapping', () => {
+  describe('uncacheMapping', () => {
     beforeEach(async () => {
       await identityService.init()
       await identityService.clearAll()
     })
 
-    it('should remove an indexed mapping by DID', () => {
-      identityService.registerIndexedMapping('inbox-remove', 'did:plc:remove')
+    it('should remove a cached mapping by DID', () => {
+      identityService.cacheMapping('inbox-remove', 'did:plc:remove')
       expect(identityService.getDidFromInboxId('inbox-remove')).toBe('did:plc:remove')
 
-      identityService.unregisterIndexedMapping('did:plc:remove')
+      identityService.uncacheMapping('did:plc:remove')
 
       expect(identityService.getDidFromInboxId('inbox-remove')).toBeUndefined()
     })
 
     it('should do nothing for unknown DID', () => {
       // Should not throw
-      identityService.unregisterIndexedMapping('did:plc:unknown')
+      identityService.uncacheMapping('did:plc:unknown')
     })
 
     it('should persist removal to localStorage', () => {
-      identityService.registerIndexedMapping('inbox-temp', 'did:plc:temp')
+      identityService.cacheMapping('inbox-temp', 'did:plc:temp')
       vi.mocked(localStorage.setItem).mockClear()
 
-      identityService.unregisterIndexedMapping('did:plc:temp')
+      identityService.uncacheMapping('did:plc:temp')
 
       expect(localStorage.setItem).toHaveBeenCalledWith(
         'jetstream-indexer-cache',
@@ -278,7 +278,7 @@ describe('IdentityService', () => {
 
     it('should return null and clean up stale cache when ATProto record is missing', async () => {
       // Pre-populate cache with stale mapping
-      identityService.registerIndexedMapping('inbox-stale', 'did:plc:stale')
+      identityService.cacheMapping('inbox-stale', 'did:plc:stale')
       expect(identityService.getDidFromInboxId('inbox-stale')).toBe('did:plc:stale')
 
       // Mock ATProto returning 404 (record deleted)
@@ -296,7 +296,7 @@ describe('IdentityService', () => {
 
     it('should return null but preserve cache on network error', async () => {
       // Pre-populate cache with mapping
-      identityService.registerIndexedMapping('inbox-cached', 'did:plc:cached')
+      identityService.cacheMapping('inbox-cached', 'did:plc:cached')
       expect(identityService.getDidFromInboxId('inbox-cached')).toBe('did:plc:cached')
 
       // Mock network failure
@@ -333,7 +333,7 @@ describe('IdentityService', () => {
 
     it('should clean up stale cache when signature verification fails definitively', async () => {
       // Pre-populate cache with stale mapping
-      identityService.registerIndexedMapping('inbox-compromised', 'did:plc:compromised')
+      identityService.cacheMapping('inbox-compromised', 'did:plc:compromised')
       expect(identityService.getDidFromInboxId('inbox-compromised')).toBe('did:plc:compromised')
 
       // Mock fetch with valid response but different inbox ID
@@ -362,7 +362,7 @@ describe('IdentityService', () => {
 
     it('should preserve cache when verification fails due to network error', async () => {
       // Pre-populate cache with valid mapping
-      identityService.registerIndexedMapping('inbox-valid', 'did:plc:valid')
+      identityService.cacheMapping('inbox-valid', 'did:plc:valid')
       expect(identityService.getDidFromInboxId('inbox-valid')).toBe('did:plc:valid')
 
       // Mock fetch with valid response
@@ -390,8 +390,8 @@ describe('IdentityService', () => {
     })
   })
 
-  describe('loadIndexedMappings', () => {
-    it('should load indexed mappings from localStorage on init', async () => {
+  describe('loadCachedMappings', () => {
+    it('should load cached mappings from localStorage on init', async () => {
       const cachedData = {
         inboxToDid: { 'inbox-cached': 'did:plc:cached' },
         didToInbox: { 'did:plc:cached': 'inbox-cached' }
@@ -408,8 +408,8 @@ describe('IdentityService', () => {
       expect(identityService.getDidFromInboxId('inbox-cached')).toBe('did:plc:cached')
     })
 
-    it('should merge indexed mappings with identity mappings', async () => {
-      // Set up both identity mappings and indexed cache
+    it('should merge cached mappings with identity mappings', async () => {
+      // Set up both identity mappings and cached mappings
       const identityMappings = [
         {
           blueskyDid: 'did:plc:self',

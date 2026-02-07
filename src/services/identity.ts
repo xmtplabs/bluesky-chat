@@ -4,7 +4,7 @@ import { verifyInboxOwnership, type VerifyInboxOwnershipResult } from './xmtp'
 import { mappingBackend } from './mappingBackend'
 
 const IDENTITY_STORE_KEY = 'identity-mappings'
-const INDEXED_MAPPINGS_KEY = 'jetstream-indexer-cache' // Shared inbox↔DID mappings
+const CACHED_MAPPINGS_KEY = 'jetstream-indexer-cache' // Local inbox↔DID mapping cache
 const ATPROTO_COLLECTION = 'org.xmtp.inbox'
 const ATPROTO_RKEY = 'self'
 
@@ -40,7 +40,7 @@ class IdentityService {
 
   async init(): Promise<void> {
     await this.loadMappings()
-    this.loadIndexedMappings()
+    this.loadCachedMappings()
   }
 
   private async loadMappings(): Promise<void> {
@@ -68,9 +68,9 @@ class IdentityService {
     }
   }
 
-  private loadIndexedMappings(): void {
+  private loadCachedMappings(): void {
     try {
-      const cached = localStorage.getItem(INDEXED_MAPPINGS_KEY)
+      const cached = localStorage.getItem(CACHED_MAPPINGS_KEY)
       if (cached) {
         const data = JSON.parse(cached)
         // Merge into existing maps (don't replace - loadMappings may have added entries)
@@ -80,22 +80,22 @@ class IdentityService {
         for (const [did, inboxId] of Object.entries(data.didToInbox || {})) {
           this.didToInbox.set(did, inboxId as string)
         }
-        console.log(`Loaded ${this.inboxToDid.size} indexed mappings from cache`)
+        console.log(`Loaded ${this.inboxToDid.size} cached mappings`)
       }
     } catch (error) {
-      console.error('Failed to load indexed mappings:', error)
+      console.error('Failed to load cached mappings:', error)
     }
   }
 
-  private saveIndexedMappings(): void {
+  private saveCachedMappings(): void {
     try {
       const data = {
         inboxToDid: Object.fromEntries(this.inboxToDid),
         didToInbox: Object.fromEntries(this.didToInbox)
       }
-      localStorage.setItem(INDEXED_MAPPINGS_KEY, JSON.stringify(data))
+      localStorage.setItem(CACHED_MAPPINGS_KEY, JSON.stringify(data))
     } catch (error) {
-      console.error('Failed to save indexed mappings:', error)
+      console.error('Failed to save cached mappings:', error)
     }
   }
 
@@ -269,7 +269,7 @@ class IdentityService {
     if (ownMapping) {
       return ownMapping.xmtpInboxId
     }
-    // Note: We intentionally do NOT short-circuit on local indexed cache (didToInbox)
+    // Note: We intentionally do NOT short-circuit on local cache (didToInbox)
     // here. That cache is for display purposes via getInboxIdFromDid(). For authoritative
     // lookups, we must verify through backend or ATProto.
 
@@ -279,7 +279,7 @@ class IdentityService {
         const backendResult = await mappingBackend.lookupByDid(did)
         if (backendResult) {
           // Backend already verified, update local cache
-          this.registerIndexedMapping(backendResult.inboxId, did)
+          this.cacheMapping(backendResult.inboxId, did)
           return backendResult.inboxId
         }
         // Backend returned null - fall through to ATProto
@@ -289,7 +289,7 @@ class IdentityService {
     }
 
     // Tier 3: Fetch and verify from ATProto (source of truth)
-    // This is a fallback - if we're hitting this often, the indexer may be behind
+    // This is a fallback - if we're hitting this often, the backend may be behind
     console.log(`[identity] ATProto fallback for DID lookup: ${did} (backend had no record)`)
     const result = await this.lookupInboxForDid(did)
     if (!result.found) {
@@ -297,7 +297,7 @@ class IdentityService {
       if (result.notFound) {
         const staleInbox = this.didToInbox.get(did)
         if (staleInbox) {
-          this.unregisterIndexedMapping(did)
+          this.uncacheMapping(did)
         }
       }
       return null
@@ -312,14 +312,14 @@ class IdentityService {
       if (verifyResult.definitive) {
         const staleInbox = this.didToInbox.get(did)
         if (staleInbox) {
-          this.unregisterIndexedMapping(did)
+          this.uncacheMapping(did)
         }
       }
       return null
     }
 
     // Update cache with verified mapping
-    this.registerIndexedMapping(result.inboxId, did)
+    this.cacheMapping(result.inboxId, did)
 
     // Report to backend so it can index this mapping (fire-and-forget)
     // This helps the backend catch up on mappings Jetstream may have missed
@@ -352,7 +352,7 @@ class IdentityService {
         const backendResult = await mappingBackend.lookupByInbox(inboxId)
         if (backendResult) {
           // Update local cache
-          this.registerIndexedMapping(backendResult.inboxId, backendResult.did)
+          this.cacheMapping(backendResult.inboxId, backendResult.did)
           return backendResult.did
         }
       } catch (error) {
@@ -381,10 +381,10 @@ class IdentityService {
         continue
       }
 
-      // Check indexed mappings cache
-      const indexedInbox = this.didToInbox.get(did)
-      if (indexedInbox) {
-        results.set(did, indexedInbox)
+      // Check cached mappings
+      const cachedInbox = this.didToInbox.get(did)
+      if (cachedInbox) {
+        results.set(did, cachedInbox)
         continue
       }
 
@@ -399,7 +399,7 @@ class IdentityService {
         for (const mapping of backendResults.mappings) {
           results.set(mapping.did, mapping.inboxId)
           // Update local cache
-          this.registerIndexedMapping(mapping.inboxId, mapping.did)
+          this.cacheMapping(mapping.inboxId, mapping.did)
         }
       } catch (error) {
         console.warn('Backend bulk lookup failed:', error)
@@ -435,7 +435,7 @@ class IdentityService {
         for (const mapping of backendResults.mappings) {
           results.set(mapping.inboxId, mapping.did)
           // Update local cache
-          this.registerIndexedMapping(mapping.inboxId, mapping.did)
+          this.cacheMapping(mapping.inboxId, mapping.did)
         }
       } catch (error) {
         console.warn('Backend bulk reverse lookup failed:', error)
@@ -470,7 +470,7 @@ class IdentityService {
     // Check local identity mappings first (own identity)
     const localMapping = this.mappings.get(blueskyDid)?.xmtpInboxId
     if (localMapping) return localMapping
-    // Fall back to indexed mappings (other users)
+    // Fall back to cached mappings (other users)
     return this.didToInbox.get(blueskyDid)
   }
 
@@ -524,8 +524,8 @@ class IdentityService {
     return Array.from(this.mappings.values()).map((m) => m.xmtpInboxId)
   }
 
-  // Register an inbox↔DID mapping (from indexer or ATProto lookup)
-  registerIndexedMapping(inboxId: string, did: string): void {
+  // Cache an inbox↔DID mapping locally
+  cacheMapping(inboxId: string, did: string): void {
     const existingDid = this.inboxToDid.get(inboxId)
     const existingInbox = this.didToInbox.get(did)
 
@@ -546,16 +546,16 @@ class IdentityService {
 
     this.inboxToDid.set(inboxId, did)
     this.didToInbox.set(did, inboxId)
-    this.saveIndexedMappings()
+    this.saveCachedMappings()
   }
 
-  // Remove an inbox↔DID mapping (called when indexer sees a delete event)
-  unregisterIndexedMapping(did: string): void {
+  // Remove an inbox↔DID mapping from local cache
+  uncacheMapping(did: string): void {
     const inboxId = this.didToInbox.get(did)
     if (inboxId) {
       this.inboxToDid.delete(inboxId)
       this.didToInbox.delete(did)
-      this.saveIndexedMappings()
+      this.saveCachedMappings()
     }
   }
 

@@ -682,8 +682,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       // This ensures we can resolve their profile when loading conversations later
       if (peerProfile) {
         identityService.cacheProfile(peerProfile)
-        // Register the reverse mapping for lookups
-        identityService.registerIndexedMapping(peerInboxId, peerProfile.did)
+        // Cache the reverse mapping for lookups
+        identityService.cacheMapping(peerInboxId, peerProfile.did)
       }
 
       const newConv: ChatConversation = {
