@@ -18,6 +18,13 @@ export function ComposerTextArea() {
     }
   }, [message])
 
+  // Refocus textarea after sending completes
+  useEffect(() => {
+    if (!isSending && textareaRef.current) {
+      textareaRef.current.focus()
+    }
+  }, [isSending])
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
