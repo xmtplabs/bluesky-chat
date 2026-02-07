@@ -12,7 +12,6 @@
  * <Chat.Provider>
  *   <Chat.Header />
  *   <Chat.MessageList />
- *   <Chat.Input />
  * </Chat.Provider>
  * ```
  */
@@ -20,7 +19,6 @@
 export { ChatProviderBridge as Provider } from './ChatProviderBridge'
 export { ChatHeader as Header } from './ChatHeader'
 export { ChatMessageList as MessageList } from './ChatMessageList'
-export { ChatInput as Input } from './ChatInput'
 export { ChatEmpty as Empty, ChatMessagesEmpty as MessagesEmpty, ChatMessagesLoading as MessagesLoading } from './ChatEmpty'
 export { ChatView as View } from './ChatView'
 
