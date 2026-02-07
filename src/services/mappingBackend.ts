@@ -56,6 +56,7 @@ class MappingBackendClient {
 
   // Persistent retry queue for failed registrations
   private pendingRegistrations: Set<string> = new Set()
+  private isRetrying = false
 
   constructor() {
     this.loadPendingRegistrations()
@@ -97,17 +98,23 @@ class MappingBackendClient {
   }
 
   private async retryPendingRegistrations(): Promise<void> {
+    if (this.isRetrying) return
     if (this.pendingRegistrations.size === 0) return
     if (!this.canMakeRequest()) return
 
-    console.log(`[MappingBackend] Retrying ${this.pendingRegistrations.size} pending registrations`)
-    for (const did of [...this.pendingRegistrations]) {
-      const success = await this.doRegister({ did })
-      if (success) {
-        this.pendingRegistrations.delete(did)
-        this.savePendingRegistrations()
+    this.isRetrying = true
+    try {
+      console.log(`[MappingBackend] Retrying ${this.pendingRegistrations.size} pending registrations`)
+      for (const did of [...this.pendingRegistrations]) {
+        const success = await this.doRegister({ did })
+        if (success) {
+          this.pendingRegistrations.delete(did)
+          this.savePendingRegistrations()
+        }
+        if (!this.canMakeRequest()) break
       }
-      if (!this.canMakeRequest()) break
+    } finally {
+      this.isRetrying = false
     }
   }
 
