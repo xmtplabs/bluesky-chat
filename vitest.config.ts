@@ -2,6 +2,8 @@ import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import { resolve } from 'path'
 
+const provider = process.env.CHAT_PROVIDER || 'bluesky'
+
 export default defineConfig({
   plugins: [react()],
   test: {
@@ -17,7 +19,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
-      '@provider': resolve(__dirname, 'packages/provider-bluesky/src'),
+      '@provider': resolve(__dirname, `packages/provider-${provider}/src`),
     }
   }
 })
