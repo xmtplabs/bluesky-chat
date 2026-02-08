@@ -3,27 +3,30 @@ import { finalizeEvent, getPublicKey } from 'nostr-tools/pure'
 import { nip19 } from 'nostr-tools'
 import type { UserProfile } from '@bluesky-chat/provider-interface'
 import { parseKind0Content, extractXmtpBinding, hexToNpub, decodeNostrIdentity } from './utils'
+import {
+  startNip46Connect,
+  loginWithExtension as nip46LoginWithExtension,
+  restoreNip46Session,
+  clearNip46Session,
+  getActiveBunkerSigner,
+} from './nip46-auth'
 
 const DEFAULT_RELAYS = [
   'wss://relay.damus.io',
   'wss://nos.lol',
-  'wss://relay.nostr.band',
   'wss://relay.snort.social',
+  'wss://relay.primal.net',
 ]
 
 const SESSION_KEY = 'nostr_session'
-
-interface NostrSession {
-  hexPubkey: string
-  loginMethod: 'extension' | 'nsec'
-}
 
 export class NostrService {
   private pool: SimplePool
   private relays: string[]
   private hexPubkey: string | null = null
   private secretKey: Uint8Array | null = null
-  private loginMethod: 'extension' | 'nsec' | null = null
+  private loginMethod: 'nip46' | 'extension' | 'nsec' | null = null
+  private nip46Abort: (() => void) | null = null
 
   constructor(relays?: string[]) {
     this.pool = new SimplePool()
@@ -33,24 +36,50 @@ export class NostrService {
   // ── Auth ──────────────────────────────────────────────
 
   /**
+   * Login via NIP-46 Nostr Connect (QR code flow).
+   * Generates a QR code data URL, calls onQrDataUrl so the UI can display
+   * it, then waits for a bunker app to connect.
+   */
+  async loginViaNip46(onQrDataUrl: (dataUrl: string) => void, onConnected?: () => void): Promise<UserProfile> {
+    console.log('[NostrService] loginViaNip46 called, relays:', this.relays)
+    const { promise, abort } = startNip46Connect(this.relays, onQrDataUrl, onConnected)
+    this.nip46Abort = abort
+
+    console.log('[NostrService] Awaiting NIP-46 connect promise...')
+    const hexPubkey = await promise
+    console.log('[NostrService] NIP-46 connect resolved, hexPubkey:', hexPubkey)
+    this.hexPubkey = hexPubkey
+    this.loginMethod = 'nip46'
+    this.nip46Abort = null
+
+    console.log('[NostrService] Fetching profile...')
+    const profile = await this.fetchProfile(hexPubkey)
+    console.log('[NostrService] Profile fetched:', profile)
+    return profile
+  }
+
+  /**
+   * Cancel an in-progress NIP-46 connect flow.
+   */
+  cancelNip46(): void {
+    this.nip46Abort?.()
+    this.nip46Abort = null
+  }
+
+  /**
    * Login via NIP-07 browser extension (Alby, nos2x, etc.).
    */
   async loginWithExtension(): Promise<UserProfile> {
-    if (!window.nostr) {
-      throw new Error('No Nostr extension found. Install Alby or nos2x.')
-    }
-
-    const hexPubkey = await window.nostr.getPublicKey()
+    const hexPubkey = await nip46LoginWithExtension()
     this.hexPubkey = hexPubkey
     this.loginMethod = 'extension'
-
-    this.persistSession()
 
     return this.fetchProfile(hexPubkey)
   }
 
   /**
    * Login with nsec (private key). Key is stored in Electron secure storage.
+   * Kept for programmatic use; nostr-login's "local" method handles UI nsec.
    */
   async loginWithNsec(nsecOrHex: string): Promise<UserProfile> {
     let secretKey: Uint8Array
@@ -71,44 +100,34 @@ export class NostrService {
     this.secretKey = secretKey
     this.loginMethod = 'nsec'
 
-    // Store secret key securely via Electron
-    if (window.electronAPI?.secureStore) {
-      await window.electronAPI.secureStore('nostr_nsec', nsecOrHex)
-    }
-    this.persistSession()
+
 
     return this.fetchProfile(hexPubkey)
   }
 
+  /**
+   * Restore session from stored NIP-46 session or NIP-07 extension.
+   */
   async restoreSession(): Promise<UserProfile | null> {
-    const stored = localStorage.getItem(SESSION_KEY)
-    if (!stored) return null
-
-    let session: NostrSession
+    // Try NIP-46 session first
     try {
-      session = JSON.parse(stored)
-    } catch {
-      return null
-    }
-
-    if (session.loginMethod === 'extension') {
-      if (!window.nostr) return null
-      try {
-        const pubkey = await window.nostr.getPublicKey()
-        if (pubkey !== session.hexPubkey) return null // Different key in extension
-        this.hexPubkey = pubkey
-        this.loginMethod = 'extension'
-        return this.fetchProfile(pubkey)
-      } catch {
-        return null
+      const hexPubkey = await restoreNip46Session()
+      if (hexPubkey) {
+        this.hexPubkey = hexPubkey
+        this.loginMethod = 'nip46'
+        return this.fetchProfile(hexPubkey)
       }
+    } catch {
+      // Fall through to extension
     }
 
-    if (session.loginMethod === 'nsec') {
-      const nsec = await window.electronAPI?.secureRetrieve?.('nostr_nsec')
-      if (!nsec) return null
+    // Try NIP-07 extension (only if available, never triggers a modal)
+    if (typeof window !== 'undefined' && window.nostr) {
       try {
-        return await this.loginWithNsec(nsec)
+        const hexPubkey = await window.nostr.getPublicKey()
+        this.hexPubkey = hexPubkey
+        this.loginMethod = 'extension'
+        return this.fetchProfile(hexPubkey)
       } catch {
         return null
       }
@@ -121,8 +140,8 @@ export class NostrService {
     this.hexPubkey = null
     this.secretKey = null
     this.loginMethod = null
+    await clearNip46Session()
     localStorage.removeItem(SESSION_KEY)
-    await window.electronAPI?.secureDelete?.('nostr_nsec')
   }
 
   isLoggedIn(): boolean {
@@ -140,19 +159,39 @@ export class NostrService {
   // ── Profiles ──────────────────────────────────────────
 
   /**
-   * Fetch a profile from relays by hex pubkey.
+   * Fetch a profile via Primal cache, falling back to relays.
    */
   async fetchProfile(hexPubkey: string): Promise<UserProfile> {
+    console.log('[NostrService] fetchProfile for hex:', hexPubkey)
+
+    // Try Primal first (fast, indexed)
+    try {
+      const events = await primalCacheQuery('user_profile', { pubkey: hexPubkey }, 0)
+      console.log('[NostrService] Primal returned', events.length, 'events')
+      const event = events.find((e) => e.pubkey === hexPubkey)
+      if (event) {
+        console.log('[NostrService] Found matching Primal event')
+        return parseKind0Content(event.content, hexPubkey)
+      }
+      console.log('[NostrService] No matching Primal event for pubkey')
+    } catch (err) {
+      console.warn('[NostrService] Primal cache query failed:', err)
+    }
+
+    // Fallback to relays
+    console.log('[NostrService] Trying relay fallback on:', this.relays)
     const event = await this.pool.get(this.relays, {
       kinds: [0],
       authors: [hexPubkey],
     })
 
     if (!event) {
+      console.warn('[NostrService] No kind 0 event found on relays either')
       const npub = hexToNpub(hexPubkey)
       return { id: npub, handle: npub.slice(0, 12) + '…' }
     }
 
+    console.log('[NostrService] Found kind 0 event on relay')
     return parseKind0Content(event.content, hexPubkey)
   }
 
@@ -167,28 +206,63 @@ export class NostrService {
   }
 
   /**
-   * Fetch multiple profiles in parallel.
+   * Fetch multiple profiles via Primal's batch API, falling back to parallel relay fetches.
    */
   async getProfiles(ids: string[]): Promise<Map<string, UserProfile>> {
     const results = new Map<string, UserProfile>()
-    const profiles = await Promise.all(ids.map((id) => this.getProfile(id)))
-    ids.forEach((id, i) => {
-      if (profiles[i]) results.set(id, profiles[i]!)
+    if (ids.length === 0) return results
+
+    // Resolve npubs to hex for Primal
+    const hexPubkeys = ids.map((id) => {
+      const decoded = decodeNostrIdentity(id)
+      return decoded ? decoded.pubkey : id
     })
+
+    try {
+      const events = await primalCacheQuery('user_infos', { pubkeys: hexPubkeys }, 0)
+      const eventsByPubkey = new Map(events.map((e) => [e.pubkey, e]))
+
+      for (let i = 0; i < ids.length; i++) {
+        const event = eventsByPubkey.get(hexPubkeys[i])
+        if (event) {
+          results.set(ids[i], parseKind0Content(event.content, event.pubkey))
+        }
+      }
+
+      // Fetch any missing profiles from relays
+      const missing = ids.filter((id) => !results.has(id))
+      if (missing.length > 0) {
+        const fallback = await Promise.all(missing.map((id) => this.getProfile(id)))
+        missing.forEach((id, i) => {
+          if (fallback[i]) results.set(id, fallback[i]!)
+        })
+      }
+    } catch {
+      // Full fallback to parallel relay fetches
+      const profiles = await Promise.all(ids.map((id) => this.getProfile(id)))
+      ids.forEach((id, i) => {
+        if (profiles[i]) results.set(id, profiles[i]!)
+      })
+    }
+
     return results
   }
 
   /**
-   * Search users via nostr.band relay NIP-50 search.
-   * Falls back to empty results if the relay doesn't support NIP-50.
+   * Search users via Primal's cache API.
+   * Primal indexes all Nostr profiles and provides fast, ranked search.
    */
   async searchUsers(query: string, limit = 10): Promise<UserProfile[]> {
     try {
-      const events = await this.pool.querySync(
-        ['wss://relay.nostr.band'],
-        { kinds: [0], search: query, limit } as any, // NIP-50 search filter
-      )
-      return events.map((e) => parseKind0Content(e.content, e.pubkey))
+      const events = await primalCacheQuery('user_search', { query, limit }, 0)
+      const seen = new Set<string>()
+      return events
+        .filter((e) => {
+          if (seen.has(e.pubkey)) return false
+          seen.add(e.pubkey)
+          return true
+        })
+        .map((e) => parseKind0Content(e.content, e.pubkey))
     } catch {
       return []
     }
@@ -333,7 +407,7 @@ export class NostrService {
   // ── Internals ─────────────────────────────────────────
 
   /**
-   * Sign an event using either NIP-07 extension or stored nsec.
+   * Sign an event using the active signing method.
    */
   private async signEvent(eventTemplate: {
     kind: number
@@ -341,6 +415,12 @@ export class NostrService {
     tags: string[][]
     content: string
   }) {
+    if (this.loginMethod === 'nip46') {
+      const signer = getActiveBunkerSigner()
+      if (signer) return signer.signEvent(eventTemplate)
+      throw new Error('NIP-46 signer not available')
+    }
+
     if (this.loginMethod === 'extension' && window.nostr) {
       return window.nostr.signEvent(eventTemplate)
     }
@@ -350,15 +430,6 @@ export class NostrService {
     }
 
     throw new Error('No signing method available')
-  }
-
-  private persistSession(): void {
-    if (!this.hexPubkey || !this.loginMethod) return
-    const session: NostrSession = {
-      hexPubkey: this.hexPubkey,
-      loginMethod: this.loginMethod,
-    }
-    localStorage.setItem(SESSION_KEY, JSON.stringify(session))
   }
 }
 
@@ -370,4 +441,73 @@ function hexToBytes(hex: string): Uint8Array {
     bytes[i / 2] = parseInt(hex.slice(i, i + 2), 16)
   }
   return bytes
+}
+
+// ── Primal Cache API ──────────────────────────────────────
+
+const PRIMAL_CACHE_URL = 'wss://cache2.primal.net/v1'
+
+interface NostrEvent {
+  kind: number
+  pubkey: string
+  content: string
+  created_at: number
+  tags: string[][]
+}
+
+/**
+ * Generic Primal cache query. Opens a WebSocket, sends the cache command,
+ * collects events matching the filter kind, and resolves on EOSE.
+ */
+function primalCacheQuery(
+  command: string,
+  payload: Record<string, unknown>,
+  filterKind?: number,
+): Promise<NostrEvent[]> {
+  return new Promise((resolve, reject) => {
+    const subId = command + '_' + Math.random().toString(36).slice(2, 8)
+    const events: NostrEvent[] = []
+    let ws: WebSocket
+
+    const timeout = setTimeout(() => {
+      ws?.close()
+      resolve(events)
+    }, 5000)
+
+    try {
+      ws = new WebSocket(PRIMAL_CACHE_URL)
+    } catch (err) {
+      clearTimeout(timeout)
+      reject(err)
+      return
+    }
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify(['REQ', subId, { cache: [command, payload] }]))
+    }
+
+    ws.onmessage = (msg) => {
+      try {
+        const data = JSON.parse(msg.data)
+        if (data[0] === 'EVENT' && data[1] === subId) {
+          if (filterKind === undefined || data[2]?.kind === filterKind) {
+            events.push(data[2])
+          }
+        }
+        if (data[0] === 'EOSE' && data[1] === subId) {
+          clearTimeout(timeout)
+          ws.close()
+          resolve(events)
+        }
+      } catch {
+        // ignore parse errors
+      }
+    }
+
+    ws.onerror = () => {
+      clearTimeout(timeout)
+      ws.close()
+      resolve(events)
+    }
+  })
 }

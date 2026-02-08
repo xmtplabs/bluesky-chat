@@ -1,5 +1,5 @@
-// NIP-07 browser extension interface (Alby, nos2x, etc.)
 declare global {
+  // NIP-07 browser extension interface (Alby, nos2x, etc.)
   interface Window {
     nostr?: {
       getPublicKey(): Promise<string>

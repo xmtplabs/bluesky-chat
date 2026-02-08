@@ -1,8 +1,24 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
+// Mock nip46-auth before any imports
+vi.mock('./nip46-auth', () => ({
+  startNip46Connect: vi.fn(() => ({
+    promise: Promise.resolve('a'.repeat(64)),
+    abort: vi.fn(),
+  })),
+  loginWithExtension: vi.fn().mockResolvedValue('a'.repeat(64)),
+  restoreNip46Session: vi.fn().mockResolvedValue(null),
+  clearNip46Session: vi.fn().mockResolvedValue(undefined),
+  getActiveBunkerSigner: vi.fn().mockReturnValue(null),
+}))
+
 // Mock NostrService before importing provider
 vi.mock('./nostr', () => {
   class MockNostrService {
+    loginViaNip46 = vi.fn().mockResolvedValue({
+      id: 'npub1test', handle: 'alice', displayName: 'Alice',
+    })
+    cancelNip46 = vi.fn()
     loginWithExtension = vi.fn().mockResolvedValue({
       id: 'npub1test',
       handle: 'alice',
@@ -31,7 +47,7 @@ vi.mock('./nostr', () => {
   return { NostrService: MockNostrService }
 })
 
-import { provider, config } from './provider'
+import { provider, config, nip46 } from './provider'
 
 describe('Nostr provider adapter', () => {
   it('should export provider implementing IdentityProvider', () => {
@@ -46,18 +62,24 @@ describe('Nostr provider adapter', () => {
     expect(provider.searchUsers).toBeTypeOf('function')
   })
 
-  it('should export config with correct Nostr values', () => {
+  it('should export config with nip46-qr method', () => {
     expect(config.name).toBe('Nostr')
     expect(config.loginPlaceholder).toMatch(/npub/)
     expect(config.loginSuffix).toBeUndefined()
-    expect(config.loginMethods).toContain('extension')
-    expect(config.loginMethods).toContain('nsec')
+    expect(config.loginMethods).toContain('nip46-qr')
     expect(config.supportsBlobUpload).toBe(false)
   })
 
-  it('login should delegate to NostrService.loginWithExtension', async () => {
-    const result = await provider.login('npub1test')
-    expect(result.profile.id).toBe('npub1test')
+  it('should export nip46 helpers', () => {
+    expect(nip46.startConnect).toBeTypeOf('function')
+    expect(nip46.cancelConnect).toBeTypeOf('function')
+    expect(nip46.hasExtension).toBeTypeOf('function')
+    expect(nip46.loginWithExtension).toBeTypeOf('function')
+  })
+
+  it('nip46.startConnect should delegate to NostrService.loginViaNip46', async () => {
+    const onQrUri = vi.fn()
+    const result = await nip46.startConnect(onQrUri)
     expect(result.id).toBe('npub1test')
   })
 })

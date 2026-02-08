@@ -63,7 +63,7 @@ export interface ProviderConfig {
   name: string                     // "Bluesky", "Nostr"
   loginPlaceholder: string         // "username" or "npub1..."
   loginSuffix?: string             // ".bsky.social" (shown as suffix in input)
-  loginMethods: Array<'oauth' | 'password' | 'extension' | 'nsec'>
+  loginMethods: Array<'oauth' | 'password' | 'extension' | 'nsec' | 'nip46-qr'>
   mappingServiceUrl: string
   supportsFollowers: boolean
   supportsFollowing: boolean
@@ -75,4 +75,15 @@ export interface ProviderConfig {
     label: string          // "Create an app password at"
     linkText: string       // "bsky.app/settings/app-passwords"
   }
+}
+
+/**
+ * Provider-specific NIP-46 helpers (Nostr only).
+ * Null for non-Nostr providers.
+ */
+export interface Nip46Helpers {
+  startConnect: (onQrDataUrl: (dataUrl: string) => void, onConnected?: () => void) => Promise<UserProfile>
+  cancelConnect: () => void
+  hasExtension: () => boolean
+  loginWithExtension: () => Promise<UserProfile>
 }

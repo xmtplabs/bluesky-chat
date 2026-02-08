@@ -1,2 +1,2 @@
-export { provider, config } from './provider'
-export type { IdentityProvider, ProviderConfig, UserProfile, IdentityMapping } from '@bluesky-chat/provider-interface'
+export { provider, config, nip46 } from './provider'
+export type { IdentityProvider, ProviderConfig, UserProfile, IdentityMapping, Nip46Helpers } from '@bluesky-chat/provider-interface'

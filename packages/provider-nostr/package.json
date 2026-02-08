@@ -9,7 +9,8 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "nostr-tools": "^2.23.0"
+    "nostr-tools": "^2.23.0",
+    "qrcode": "^1.5.4"
   },
   "peerDependencies": {
     "@bluesky-chat/provider-interface": "workspace:*"

@@ -60,8 +60,9 @@ export function parseKind0Content(content: string, hexPubkey: string): UserProfi
   }
 
   const name = typeof metadata.name === 'string' ? metadata.name : undefined
+  const displayName = typeof metadata.display_name === 'string' ? metadata.display_name : undefined
   const nip05 = typeof metadata.nip05 === 'string' ? metadata.nip05 : undefined
-  const handle = name || nip05 || truncatedNpub
+  const handle = name || displayName || nip05 || truncatedNpub
 
   return {
     id: npub,

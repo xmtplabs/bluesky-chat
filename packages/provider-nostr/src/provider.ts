@@ -1,4 +1,4 @@
-import type { IdentityProvider, ProviderConfig, UserProfile } from '@bluesky-chat/provider-interface'
+import type { IdentityProvider, ProviderConfig, UserProfile, Nip46Helpers } from '@bluesky-chat/provider-interface'
 import { NostrService } from './nostr'
 import { npubToHex } from './utils'
 
@@ -6,10 +6,9 @@ const service = new NostrService()
 
 export const provider: IdentityProvider = {
   async login(identifier: string) {
-    // Default login method: NIP-07 extension
-    // The identifier may be ignored — extension provides the key
-    const profile = await service.loginWithExtension()
-    return { profile, id: profile.id }
+    // NIP-46 flow is started via nip46.startConnect() from the LoginScreen.
+    // This fallback handles the case where login('') is called directly.
+    throw new Error('Use nip46.startConnect() or nip46.loginWithExtension() for Nostr login')
   },
 
   async loginWithPassword(identifier: string, nsecKey: string) {
@@ -76,11 +75,23 @@ export const provider: IdentityProvider = {
   },
 }
 
+/**
+ * Provider-specific NIP-46 helpers for the LoginScreen.
+ * The shared IdentityProvider interface doesn't know about QR codes,
+ * so the LoginScreen imports these directly.
+ */
+export const nip46: Nip46Helpers = {
+  startConnect: (onQrDataUrl: (dataUrl: string) => void, onConnected?: () => void) => service.loginViaNip46(onQrDataUrl, onConnected),
+  cancelConnect: () => service.cancelNip46(),
+  hasExtension: () => typeof window !== 'undefined' && !!window.nostr,
+  loginWithExtension: () => service.loginWithExtension(),
+}
+
 export const config: ProviderConfig = {
   name: 'Nostr',
   loginPlaceholder: 'npub1…',
   loginSuffix: undefined,
-  loginMethods: ['extension', 'nsec'],
+  loginMethods: ['nip46-qr'],
   mappingServiceUrl: '',
   supportsFollowers: false,    // Requires relay indexing
   supportsFollowing: true,     // Kind 3 contacts list

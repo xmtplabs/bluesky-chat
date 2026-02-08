@@ -1,5 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
+// Mock nip46-auth before any imports that use it
+vi.mock('./nip46-auth', () => ({
+  startNip46Connect: vi.fn(() => ({
+    promise: Promise.resolve('a'.repeat(64)),
+    abort: vi.fn(),
+  })),
+  loginWithExtension: vi.fn().mockResolvedValue('a'.repeat(64)),
+  restoreNip46Session: vi.fn().mockResolvedValue(null),
+  clearNip46Session: vi.fn().mockResolvedValue(undefined),
+  getActiveBunkerSigner: vi.fn().mockReturnValue(null),
+}))
+
 // Mock nostr-tools modules
 vi.mock('nostr-tools/pool', () => {
   class MockSimplePool {
@@ -18,6 +30,7 @@ vi.mock('nostr-tools/pure', () => ({
     pubkey: 'a'.repeat(64),
     sig: 'sig',
   })),
+  generateSecretKey: vi.fn(() => new Uint8Array(32)),
 }))
 
 vi.mock('nostr-tools', () => ({
@@ -31,7 +44,16 @@ vi.mock('nostr-tools', () => ({
   },
 }))
 
+vi.mock('nostr-tools/nip46', () => ({
+  createNostrConnectURI: vi.fn(() => 'nostrconnect://abc123'),
+  BunkerSigner: {
+    fromURI: vi.fn(),
+    fromBunker: vi.fn(),
+  },
+}))
+
 import { NostrService } from './nostr'
+import { clearNip46Session, restoreNip46Session } from './nip46-auth'
 
 describe('NostrService', () => {
   let service: NostrService
@@ -48,8 +70,58 @@ describe('NostrService', () => {
     delete (window as any).nostr
   })
 
+  describe('loginViaNip46', () => {
+    it('should call onQrUri and fetch profile on successful connect', async () => {
+      mockPool.get.mockResolvedValue({
+        kind: 0,
+        content: JSON.stringify({ name: 'alice', picture: 'https://img.com/a.jpg' }),
+        pubkey: 'a'.repeat(64),
+      })
+
+      const onQrUri = vi.fn()
+      const profile = await service.loginViaNip46(onQrUri)
+      expect(profile.handle).toBe('alice')
+      expect(service.isLoggedIn()).toBe(true)
+    })
+  })
+
   describe('loginWithExtension', () => {
-    it('should get pubkey from NIP-07 extension', async () => {
+    it('should login via NIP-07 extension and fetch profile', async () => {
+      mockPool.get.mockResolvedValue({
+        kind: 0,
+        content: JSON.stringify({ name: 'bob' }),
+        pubkey: 'a'.repeat(64),
+      })
+
+      const profile = await service.loginWithExtension()
+      expect(profile.handle).toBe('bob')
+      expect(service.isLoggedIn()).toBe(true)
+    })
+  })
+
+  describe('restoreSession', () => {
+    it('should return null when no NIP-46 session exists and no extension', async () => {
+      const result = await service.restoreSession()
+      expect(result).toBeNull()
+    })
+
+    it('should restore from NIP-46 session', async () => {
+      vi.mocked(restoreNip46Session).mockResolvedValueOnce('a'.repeat(64))
+
+      mockPool.get.mockResolvedValue({
+        kind: 0,
+        content: JSON.stringify({ name: 'alice' }),
+        pubkey: 'a'.repeat(64),
+      })
+
+      const profile = await service.restoreSession()
+      expect(profile).not.toBeNull()
+      expect(profile!.handle).toBe('alice')
+      expect(service.isLoggedIn()).toBe(true)
+    })
+
+    it('should fall back to extension when NIP-46 session fails', async () => {
+      vi.mocked(restoreNip46Session).mockResolvedValueOnce(null)
       ;(window as any).nostr = {
         getPublicKey: vi.fn().mockResolvedValue('a'.repeat(64)),
         signEvent: vi.fn(),
@@ -57,17 +129,30 @@ describe('NostrService', () => {
 
       mockPool.get.mockResolvedValue({
         kind: 0,
-        content: JSON.stringify({ name: 'alice', picture: 'https://img.com/a.jpg' }),
+        content: JSON.stringify({ name: 'alice' }),
         pubkey: 'a'.repeat(64),
       })
 
-      const profile = await service.loginWithExtension()
-      expect(profile.handle).toBe('alice')
-      expect(service.isLoggedIn()).toBe(true)
+      const profile = await service.restoreSession()
+      expect(profile).not.toBeNull()
+      expect(profile!.handle).toBe('alice')
     })
+  })
 
-    it('should throw when no extension is installed', async () => {
-      await expect(service.loginWithExtension()).rejects.toThrow('No Nostr extension found')
+  describe('logout', () => {
+    it('should call clearNip46Session and clear state', async () => {
+      mockPool.get.mockResolvedValue({
+        kind: 0,
+        content: JSON.stringify({ name: 'alice' }),
+        pubkey: 'a'.repeat(64),
+      })
+
+      await service.loginWithExtension()
+      expect(service.isLoggedIn()).toBe(true)
+
+      await service.logout()
+      expect(service.isLoggedIn()).toBe(false)
+      expect(clearNip46Session).toHaveBeenCalled()
     })
   })
 
@@ -121,7 +206,7 @@ describe('NostrService', () => {
         signEvent: vi.fn((t: any) => ({ ...t, id: 'id', pubkey: 'a'.repeat(64), sig: 'sig' })),
       }
 
-      // Login first
+      // Login via extension first
       mockPool.get.mockResolvedValue({
         kind: 0,
         content: JSON.stringify({ name: 'alice' }),
@@ -138,8 +223,6 @@ describe('NostrService', () => {
 
       await service.publishInboxBinding('inbox-123', 'sig-abc')
 
-      // Check the signed event content includes merged fields
-      // loginWithExtension doesn't call signEvent, so publishInboxBinding's call is at index 0
       const signCall = (window as any).nostr.signEvent.mock.calls[0][0]
       const content = JSON.parse(signCall.content)
       expect(content.name).toBe('alice')
