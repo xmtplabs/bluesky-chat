@@ -18,6 +18,18 @@ const messageInsertionQueues = new Map<string, Promise<void>>()
 let loadConversationsToken: symbol | null = null
 
 /**
+ * Look up a sender's BlueskyProfile from the identity cache.
+ * Returns undefined if the inbox ID hasn't been resolved yet.
+ */
+function getSenderProfile(senderInboxId: string): BlueskyProfile | undefined {
+  const did = identityService.getDidFromInboxId(senderInboxId)
+  if (did) {
+    return identityService.getCachedProfile(did) || undefined
+  }
+  return undefined
+}
+
+/**
  * Get a display name for a sender inbox ID.
  * Tries to resolve from identity cache, falls back to truncated ID.
  */
@@ -267,6 +279,7 @@ function addStreamedMessage(
     id: message.id,
     conversationId,
     senderAddress: message.senderInboxId || '',
+    senderProfile: conv.isGroup ? getSenderProfile(message.senderInboxId || '') : undefined,
     content: parsed.content,
     sentAt: Number(message.sentAtNs) / 1_000_000,
     status: 'delivered',
@@ -553,6 +566,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
               id: msg.id,
               conversationId,
               senderAddress: msg.senderInboxId || '',
+              senderProfile: isGroup ? getSenderProfile(msg.senderInboxId || '') : undefined,
               content: parsed.content,
               sentAt: Number(msg.sentAtNs) / 1_000_000,
               status: 'sent',
