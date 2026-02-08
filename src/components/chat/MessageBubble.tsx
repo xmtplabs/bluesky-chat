@@ -41,9 +41,18 @@ export function MessageBubble({ message, isOwn, showAvatar, avatar, groupPositio
 
   const isAvatarClickable = !isOwn && showAvatar && message.senderProfile?.did
 
+  const senderName = !isOwn && isGroupChat && showAvatar
+    ? (message.senderProfile?.displayName || message.senderProfile?.handle)
+    : undefined
+
   return (
     <div className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
       <div className={`flex flex-col max-w-[75%] ${isOwn ? 'items-end' : 'items-start'}`}>
+        {senderName && (
+          <span className="text-[12px] font-medium text-[var(--color-text-secondary)] ml-10 mb-0.5 truncate max-w-full">
+            {senderName}
+          </span>
+        )}
         <div className={`flex items-end gap-2 ${isOwn ? 'flex-row-reverse' : ''}`}>
           {!isOwn && showAvatar && (
             <div className="flex-shrink-0 mb-1">
