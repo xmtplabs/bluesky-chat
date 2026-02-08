@@ -6,7 +6,8 @@ import {
   type ListMode,
   type XmtpUserStatus
 } from './context/NewConversationContext'
-import { useBluesky } from '../../../hooks/useBluesky'
+import { useIdentity } from '../../../hooks/useIdentity'
+import { config } from '../../../provider'
 import { useXMTP } from '../../../hooks/useXMTP'
 import { useChatStore } from '../../../stores/chatStore'
 import { useAuthStore } from '../../../stores/authStore'
@@ -14,7 +15,7 @@ import { identityService } from '../../../services/identity'
 import { useXmtpStatusChecker } from '../../../hooks/useXmtpStatusChecker'
 import { resolveUsersToInboxIds } from '../../../utils/resolveUsers'
 import { getErrorMessage } from '../../../utils/errors'
-import type { BlueskyProfile } from '../../../types'
+import type { UserProfile } from '../../../types'
 
 interface NewConversationProviderBridgeProps {
   children: ReactNode
@@ -22,14 +23,14 @@ interface NewConversationProviderBridgeProps {
 }
 
 /**
- * Bridges useBluesky and useXMTP hooks to the NewConversation context.
+ * Bridges useIdentity and useXMTP hooks to the NewConversation context.
  * Manages conversation mode, user selection, and XMTP status checking.
  */
 export function NewConversationProviderBridge({ children, onClose }: NewConversationProviderBridgeProps) {
   const [mode, setModeState] = useState<ConversationMode>('dm')
   const [listMode, setListMode] = useState<ListMode>('following')
   const [searchQuery, setSearchQuery] = useState('')
-  const [selectedUsers, setSelectedUsers] = useState<BlueskyProfile[]>([])
+  const [selectedUsers, setSelectedUsers] = useState<UserProfile[]>([])
   const [groupName, setGroupName] = useState('')
   const { xmtpStatus, checkXmtpStatus } = useXmtpStatusChecker()
   const [isCreating, setIsCreating] = useState(false)
@@ -44,16 +45,16 @@ export function NewConversationProviderBridge({ children, onClose }: NewConversa
     loadFollowing,
     isSearching,
     clearSearch
-  } = useBluesky()
+  } = useIdentity()
 
   const { createDm, createGroup } = useXMTP()
   const { conversations, selectConversation } = useChatStore()
-  const { blueskyProfile: currentUser } = useAuthStore()
+  const { profile: currentUser } = useAuthStore()
 
-  // Load following and followers on mount
+  // Load following and followers on mount (only if provider supports it)
   useEffect(() => {
-    loadFollowing()
-    loadFollowers()
+    if (config.supportsFollowing) loadFollowing()
+    if (config.supportsFollowers) loadFollowers()
   }, [])
 
   // Check XMTP status for displayed users
@@ -86,9 +87,9 @@ export function NewConversationProviderBridge({ children, onClose }: NewConversa
     setGroupName('')
   }, [])
 
-  const selectUser = useCallback((user: BlueskyProfile) => {
-    const status = xmtpStatus.get(user.did)
-    const isAlreadySelected = selectedUsers.some((u) => u.did === user.did)
+  const selectUser = useCallback((user: UserProfile) => {
+    const status = xmtpStatus.get(user.id)
+    const isAlreadySelected = selectedUsers.some((u) => u.id === user.id)
     const canMessage = status === 'verified'
 
     if (!isAlreadySelected && !canMessage) return
@@ -97,10 +98,10 @@ export function NewConversationProviderBridge({ children, onClose }: NewConversa
       // Check if we already have a DM with this user
       // Match by DID if profile is populated, or by inbox ID as fallback
       // (handles case where conversation exists but peerProfile wasn't resolved)
-      const userInboxId = identityService.getInboxIdFromDid(user.did)
+      const userInboxId = identityService.getInboxIdFromId(user.id)
       const existingConv = conversations.find((c) => {
         if (c.isGroup) return false
-        if (c.peerProfile?.did === user.did) return true
+        if (c.peerProfile?.id === user.id) return true
         if (userInboxId && c.peerAddress === userInboxId) return true
         return false
       })
@@ -119,7 +120,7 @@ export function NewConversationProviderBridge({ children, onClose }: NewConversa
     } else {
       setSelectedUsers((prev) => {
         if (isAlreadySelected) {
-          return prev.filter((u) => u.did !== user.did)
+          return prev.filter((u) => u.id !== user.id)
         }
         if (prev.length >= 250) {
           setError('Maximum 250 members allowed')
@@ -132,7 +133,7 @@ export function NewConversationProviderBridge({ children, onClose }: NewConversa
   }, [mode, selectedUsers, xmtpStatus, conversations, selectConversation, onClose])
 
   const removeUser = useCallback((did: string) => {
-    setSelectedUsers((prev) => prev.filter((u) => u.did !== did))
+    setSelectedUsers((prev) => prev.filter((u) => u.id !== did))
   }, [])
 
   const startConversation = useCallback(async () => {
@@ -144,7 +145,7 @@ export function NewConversationProviderBridge({ children, onClose }: NewConversa
     try {
       if (mode === 'dm') {
         const selectedUser = selectedUsers[0]
-        const inboxId = await identityService.resolveDidToInboxCached(selectedUser.did)
+        const inboxId = await identityService.resolveIdToInboxCached(selectedUser.id)
 
         if (!inboxId) {
           setError('This user hasn\'t set up chat yet')
@@ -182,13 +183,13 @@ export function NewConversationProviderBridge({ children, onClose }: NewConversa
       return 2
     }
     return [...currentList].sort((a, b) => {
-      return statusPriority(xmtpStatus.get(a.did)) - statusPriority(xmtpStatus.get(b.did))
+      return statusPriority(xmtpStatus.get(a.id)) - statusPriority(xmtpStatus.get(b.id))
     })
   }, [currentList, xmtpStatus])
 
   // Filter out the current user from the list (can't message yourself)
   const baseList = searchQuery.trim() ? searchResults : sortedList
-  const displayList = currentUser ? baseList.filter((u) => u.did !== currentUser.did) : baseList
+  const displayList = currentUser ? baseList.filter((u) => u.id !== currentUser.id) : baseList
   const canCreate = selectedUsers.length >= 1
 
   const contextValue: NewConversationContextValue = useMemo(() => ({

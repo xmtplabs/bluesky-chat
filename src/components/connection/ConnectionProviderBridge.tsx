@@ -19,7 +19,7 @@ interface ConnectionProviderBridgeProps {
  * Manages connection phase transitions and restore flow.
  */
 export function ConnectionProviderBridge({ children }: ConnectionProviderBridgeProps) {
-  const { blueskyProfile, connectXMTP, error: authError, clearError } = useAuthStore()
+  const { profile, connectXMTP, error: authError, clearError } = useAuthStore()
   const { getPhase, setPhase } = useOnboardingStore()
 
   const [phase, setLocalPhase] = useState<ConnectionPhase>('checking')
@@ -31,15 +31,15 @@ export function ConnectionProviderBridge({ children }: ConnectionProviderBridgeP
 
   // Check for existing key on mount
   useEffect(() => {
-    if (!blueskyProfile?.did) return
+    if (!profile?.id) return
 
     let cancelled = false
 
     const checkKey = async () => {
       verboseLog('🔍 CONNECTION: Checking for existing key...')
-      console.log('   DID:', blueskyProfile.did)
+      console.log('   DID:', profile.id)
 
-      const exists = await hasExistingKey(blueskyProfile.did)
+      const exists = await hasExistingKey(profile.id)
       if (cancelled) return
 
       setKeyExists(exists)
@@ -68,7 +68,7 @@ export function ConnectionProviderBridge({ children }: ConnectionProviderBridgeP
     return () => {
       cancelled = true
     }
-  }, [blueskyProfile?.did, connectXMTP])
+  }, [profile?.id, connectXMTP])
 
   // Sync auth errors to local state
   useEffect(() => {
@@ -79,14 +79,14 @@ export function ConnectionProviderBridge({ children }: ConnectionProviderBridgeP
   }, [authError])
 
   const skipRestore = useCallback(async () => {
-    if (!blueskyProfile?.did) return
+    if (!profile?.id) return
 
     verboseWarn('⏭️ SKIP RESTORE: User chose to skip key restore')
-    verboseWarn('   DID:', blueskyProfile.did)
+    verboseWarn('   DID:', profile.id)
     verboseWarn('   ⚠️ This will CREATE A NEW XMTP installation!')
 
     // Mark as restore-skipped for backup prompt
-    setPhase(blueskyProfile.did, { phase: 'restore-skipped' })
+    setPhase(profile.id, { phase: 'restore-skipped' })
     setLocalPhase('connecting')
 
     try {
@@ -95,20 +95,20 @@ export function ConnectionProviderBridge({ children }: ConnectionProviderBridgeP
       setError(err instanceof Error ? err.message : 'Connection failed')
       setLocalPhase('error')
     }
-  }, [blueskyProfile?.did, connectXMTP, setPhase])
+  }, [profile?.id, connectXMTP, setPhase])
 
   const restoreFromBackup = useCallback(async (key: Hex) => {
-    if (!blueskyProfile?.did) return
+    if (!profile?.id) return
 
     verboseLog('🔐 RESTORE: Attempting to restore key from backup')
-    verboseLog('   DID:', blueskyProfile.did)
+    verboseLog('   DID:', profile.id)
 
     setIsRestoring(true)
     setError(null)
 
     // First, try to import the key
     try {
-      await importPrivateKey(blueskyProfile.did, key)
+      await importPrivateKey(profile.id, key)
       verboseLog('🔐 RESTORE: Key imported successfully')
     } catch (err) {
       // Import failed (wrong password, invalid key, etc.) - stay on restore screen
@@ -121,7 +121,7 @@ export function ConnectionProviderBridge({ children }: ConnectionProviderBridgeP
 
     // Import succeeded - mark as restored and try to connect
     setRestoredKey(key)
-    setPhase(blueskyProfile.did, { phase: 'restored' })
+    setPhase(profile.id, { phase: 'restored' })
     setLocalPhase('connecting')
     setIsRestoring(false)
 
@@ -135,7 +135,7 @@ export function ConnectionProviderBridge({ children }: ConnectionProviderBridgeP
       setError(err instanceof Error ? err.message : 'Connection failed')
       setLocalPhase('error')
     }
-  }, [blueskyProfile?.did, connectXMTP, setPhase])
+  }, [profile?.id, connectXMTP, setPhase])
 
   const retryConnection = useCallback(async () => {
     verboseLog('🔄 RETRY: Retrying XMTP connection')
@@ -153,13 +153,13 @@ export function ConnectionProviderBridge({ children }: ConnectionProviderBridgeP
   }, [connectXMTP, clearError])
 
   const clearInstallations = useCallback(async () => {
-    if (!blueskyProfile?.did) {
-      verboseError('No Bluesky profile to clear installations for')
+    if (!profile?.id) {
+      verboseError('No profile to clear installations for')
       return
     }
 
     verboseWarn('🗑️ CLEAR INSTALLATIONS: Starting installation cleanup')
-    verboseWarn('   DID:', blueskyProfile.did)
+    verboseWarn('   DID:', profile.id)
     verboseWarn('   ⚠️ This will DELETE local IndexedDB and revoke all installations!')
     verboseWarn('   ⚠️ A NEW installation will be created on reconnect!')
 
@@ -167,9 +167,9 @@ export function ConnectionProviderBridge({ children }: ConnectionProviderBridgeP
 
     try {
       // Get private key for this DID
-      const privateKey = await exportPrivateKey(blueskyProfile.did)
+      const privateKey = await exportPrivateKey(profile.id)
       if (!privateKey) {
-        verboseError('No private key found for DID:', blueskyProfile.did)
+        verboseError('No private key found for DID:', profile.id)
         setError('No private key found')
         setIsClearing(false)
         return
@@ -246,7 +246,7 @@ export function ConnectionProviderBridge({ children }: ConnectionProviderBridgeP
     } finally {
       setIsClearing(false)
     }
-  }, [blueskyProfile?.did, error, connectXMTP, clearError])
+  }, [profile?.id, error, connectXMTP, clearError])
 
   const contextValue: ConnectionContextValue = useMemo(() => ({
     state: {
@@ -261,12 +261,12 @@ export function ConnectionProviderBridge({ children }: ConnectionProviderBridgeP
       clearInstallations
     },
     meta: {
-      blueskyProfile,
+      profile,
       isRestoring,
       isClearing,
       hasExistingKey: keyExists
     }
-  }), [phase, error, restoredKey, skipRestore, restoreFromBackup, retryConnection, clearInstallations, blueskyProfile, isRestoring, isClearing, keyExists])
+  }), [phase, error, restoredKey, skipRestore, restoreFromBackup, retryConnection, clearInstallations, profile, isRestoring, isClearing, keyExists])
 
   return (
     <ConnectionProvider value={contextValue}>

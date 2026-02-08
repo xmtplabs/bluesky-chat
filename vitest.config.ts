@@ -16,7 +16,8 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@': resolve(__dirname, 'src')
+      '@': resolve(__dirname, 'src'),
+      '@provider': resolve(__dirname, 'packages/provider-bluesky/src'),
     }
   }
 })

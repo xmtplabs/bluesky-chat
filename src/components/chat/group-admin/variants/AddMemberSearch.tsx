@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useGroupAdmin } from '../context/GroupAdminContext'
-import { useBluesky } from '../../../../hooks/useBluesky'
+import { useIdentity } from '../../../../hooks/useIdentity'
+import { config } from '../../../../provider'
 import { Avatar } from '../../../shared/Avatar'
 
 export function AddMemberSearch() {
@@ -16,13 +17,13 @@ export function AddMemberSearch() {
     loadFollowers,
     isSearching,
     clearSearch
-  } = useBluesky()
+  } = useIdentity()
 
   const [hasLoadedFollowers, setHasLoadedFollowers] = useState(false)
 
-  // Load followers on mount
+  // Load followers on mount (only if provider supports it)
   useEffect(() => {
-    if (editMode === 'add-member' && !hasLoadedFollowers) {
+    if (editMode === 'add-member' && !hasLoadedFollowers && config.supportsFollowers) {
       loadFollowers()
       setHasLoadedFollowers(true)
     }
@@ -60,10 +61,10 @@ export function AddMemberSearch() {
 
   // Filter out existing members using a Set of known member DIDs for O(1) lookup
   const existingMemberDids = new Set(
-    members.map((m) => m.profile?.did).filter((did): did is string => !!did)
+    members.map((m) => m.profile?.id).filter((did): did is string => !!did)
   )
   const displayList = (memberSearchQuery.trim() ? searchResults : followers).filter(
-    (user) => !existingMemberDids.has(user.did)
+    (user) => !existingMemberDids.has(user.id)
   )
 
   return (
@@ -74,7 +75,7 @@ export function AddMemberSearch() {
           <div className="flex flex-wrap gap-2">
             {selectedMembersToAdd.map((user) => (
               <div
-                key={user.did}
+                key={user.id}
                 className="flex items-center gap-2 pl-1 pr-2 py-1 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-full"
               >
                 <Avatar
@@ -86,7 +87,7 @@ export function AddMemberSearch() {
                   {user.displayName || user.handle}
                 </span>
                 <button
-                  onClick={() => removeMemberToAdd(user.did)}
+                  onClick={() => removeMemberToAdd(user.id)}
                   className="p-0.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-surface-hover)] rounded-full transition-colors"
                 >
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -161,14 +162,14 @@ export function AddMemberSearch() {
             )}
             <div className="space-y-0.5">
               {displayList.map((user) => {
-                const isSelected = selectedMembersToAdd.some((u) => u.did === user.did)
-                const status = xmtpStatus.get(user.did)
+                const isSelected = selectedMembersToAdd.some((u) => u.id === user.id)
+                const status = xmtpStatus.get(user.id)
                 const canMessage = status === 'verified'
                 const isChecking = status === 'checking' || status === undefined
 
                 return (
                   <button
-                    key={user.did}
+                    key={user.id}
                     onClick={() => toggleMemberToAdd(user)}
                     disabled={!canMessage}
                     className={`w-full p-3 flex items-center gap-3 rounded-xl transition-all text-left ${

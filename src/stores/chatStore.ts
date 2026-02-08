@@ -1,9 +1,10 @@
 import { create } from 'zustand'
 import type { DecodedMessage } from '@xmtp/browser-sdk'
-import type { ChatConversation, ChatMessage, BlueskyProfile } from '../types'
+import type { ChatConversation, ChatMessage, UserProfile } from '../types'
 import { xmtpService, ConsentState } from '../services/xmtp'
 import { identityService } from '../services/identity'
-import { blueskyService } from '../services/bluesky'
+import { provider } from '../provider'
+import { useAuthStore } from './authStore'
 import { useProfileStore } from './profileStore'
 import { getErrorMessage } from '../utils/errors'
 
@@ -23,7 +24,7 @@ let loadConversationsToken: symbol | null = null
  */
 function getSenderName(senderInboxId: string): string {
   // Try to get the DID from identity service
-  const did = identityService.getDidFromInboxId(senderInboxId)
+  const did = identityService.getIdFromInboxId(senderInboxId)
   if (did) {
     // Try to get cached profile
     const profile = identityService.getCachedProfile(did)
@@ -98,15 +99,15 @@ function extractInboxIdsFromGroupUpdate(content: unknown): string[] {
  */
 async function ensureInboxIdsResolved(inboxIds: string[]): Promise<void> {
   // Bulk resolve any unresolved inbox→DID mappings
-  const unresolved = inboxIds.filter((id) => !identityService.getDidFromInboxId(id))
+  const unresolved = inboxIds.filter((id) => !identityService.getIdFromInboxId(id))
   const resolved = unresolved.length > 0
-    ? await identityService.bulkResolveInboxToDid(unresolved)
+    ? await identityService.bulkResolveInboxToId(unresolved)
     : new Map<string, string>()
 
   // Collect DIDs that need profile fetching
   const didsToFetch: string[] = []
   for (const inboxId of inboxIds) {
-    const did = resolved.get(inboxId) || identityService.getDidFromInboxId(inboxId)
+    const did = resolved.get(inboxId) || identityService.getIdFromInboxId(inboxId)
     if (did && !identityService.getCachedProfile(did)) {
       didsToFetch.push(did)
     }
@@ -118,7 +119,7 @@ async function ensureInboxIdsResolved(inboxIds: string[]): Promise<void> {
     const batch = didsToFetch.slice(i, i + BATCH_SIZE)
     await Promise.allSettled(
       batch.map((did) =>
-        blueskyService.getProfile(did).then((profile) => {
+        provider.getProfile(did).then((profile) => {
           if (profile) identityService.cacheProfile(profile)
         }).catch(() => {
           console.debug('Profile fetch failed for DID:', did)
@@ -363,7 +364,7 @@ interface ChatState {
   selectConversation: (conversationId: string | null) => void
   loadMessages: (conversationId: string) => Promise<void>
   sendMessage: (content: string) => Promise<void>
-  createDm: (peerAddress: string, peerProfile?: BlueskyProfile) => Promise<string>
+  createDm: (peerAddress: string, peerProfile?: UserProfile) => Promise<string>
   createGroup: (memberAddresses: string[], name?: string) => Promise<string>
   startMessageStream: () => Promise<void>
   startConversationStream: () => Promise<void>
@@ -441,12 +442,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
         await ensureInboxIdsResolved([...activeInboxIds])
       }
 
-      // Auto-allow unknown DMs from people the user follows on Bluesky
+      // Auto-allow unknown DMs from people the user follows via their identity provider
       const { followingDids } = useProfileStore.getState()
       if (followingDids.size > 0) {
         for (const d of activeConvDatas) {
           if (d.consentState !== ConsentState.Unknown || d.isGroup) continue
-          const peerDid = d.peerInboxId ? identityService.getDidFromInboxId(d.peerInboxId) : undefined
+          const peerDid = d.peerInboxId ? identityService.getIdFromInboxId(d.peerInboxId) : undefined
           if (peerDid && followingDids.has(peerDid)) {
             xmtpService.setConsentState(d.conv.id, ConsentState.Allowed).catch(() => {})
             d.consentState = ConsentState.Allowed
@@ -456,10 +457,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       // Phase 3: Build conversation objects with resolved names
       for (const { conv, members, isGroup: convIsGroup, lastMessage, peerInboxId, consentState } of activeConvDatas) {
-        let peerProfile: BlueskyProfile | undefined
+        let peerProfile: UserProfile | undefined
 
         if (!convIsGroup && peerInboxId) {
-          const peerDid = identityService.getDidFromInboxId(peerInboxId)
+          const peerDid = identityService.getIdFromInboxId(peerInboxId)
           if (peerDid) {
             peerProfile = identityService.getCachedProfile(peerDid) || undefined
           }
@@ -502,7 +503,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set({ conversations: chatConversations })
 
       // Persist conversation count for this user (used to skip skeleton loading on next launch)
-      const did = blueskyService.getDid()
+      const did = useAuthStore.getState().profile?.id
       if (did) {
         saveConversationCount(did, chatConversations.length)
       }
@@ -669,7 +670,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  createDm: async (peerInboxId: string, peerProfile?: BlueskyProfile) => {
+  createDm: async (peerInboxId: string, peerProfile?: UserProfile) => {
     set({ isCreating: true, error: null })
 
     try {
@@ -683,7 +684,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (peerProfile) {
         identityService.cacheProfile(peerProfile)
         // Cache the reverse mapping for lookups
-        identityService.cacheMapping(peerInboxId, peerProfile.did)
+        identityService.cacheMapping(peerInboxId, peerProfile.id)
       }
 
       const newConv: ChatConversation = {

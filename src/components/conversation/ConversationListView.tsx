@@ -27,7 +27,7 @@ function ConversationListLoading() {
  * Check if user is known to have zero conversations based on their last session.
  */
 function useIsKnownEmpty(): boolean {
-  const did = useAuthStore((s) => s.blueskyProfile?.did)
+  const did = useAuthStore((s) => s.profile?.id)
   if (!did) return false
   return getLastKnownConversationCount(did) === 0
 }

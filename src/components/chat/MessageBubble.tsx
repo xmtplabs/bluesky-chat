@@ -34,12 +34,12 @@ export function MessageBubble({ message, isOwn, showAvatar, avatar, groupPositio
   })
 
   const handleAvatarClick = () => {
-    if (message.senderProfile?.did) {
-      openUserProfile(message.senderProfile.did)
+    if (message.senderProfile?.id) {
+      openUserProfile(message.senderProfile.id)
     }
   }
 
-  const isAvatarClickable = !isOwn && showAvatar && message.senderProfile?.did
+  const isAvatarClickable = !isOwn && showAvatar && message.senderProfile?.id
 
   return (
     <div className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>

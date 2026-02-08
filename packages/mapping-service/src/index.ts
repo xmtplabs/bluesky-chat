@@ -8,8 +8,10 @@ import bulk from './routes/bulk'
 import register from './routes/register'
 import admin from './routes/admin'
 
-// Re-export Durable Object
-export { JetstreamIndexer } from './indexer/jetstream'
+// Re-export Durable Object indexers
+export { BlueskyIndexer } from './indexers/bluesky'
+// Backwards-compatible alias for existing wrangler.toml Durable Object binding
+export { BlueskyIndexer as JetstreamIndexer } from './indexers/bluesky'
 
 const app = new Hono<{ Bindings: Env }>()
 

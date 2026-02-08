@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useBluesky } from '../../hooks/useBluesky'
+import { useIdentity } from '../../hooks/useIdentity'
 import { useConversations } from '../../hooks/useConversations'
 import { PrimaryInbox } from '../conversation/variants/PrimaryInbox'
 import { NewConversation } from '../chat/NewConversation'
@@ -8,13 +8,14 @@ import { UserLockup } from '../shared/UserLockup'
 import { InboxSettingsView } from '../settings/InboxSettingsView'
 import { useUIStore } from '../../stores/uiStore'
 import { useAuthStore } from '../../stores/authStore'
+import { config } from '../../provider'
 
 type Modal = 'new-conversation' | 'requests' | null
 
 export function Sidebar() {
   const [modal, setModal] = useState<Modal>(null)
   const [searchQuery, setSearchQuery] = useState('')
-  const { profile } = useBluesky()
+  const { profile } = useIdentity()
   const { requestCount } = useConversations()
   const { openUserProfile, sidebarView, toggleInboxSettings } = useUIStore()
   const { identityMismatch, signatureInvalid } = useAuthStore()
@@ -44,7 +45,7 @@ export function Sidebar() {
         {/* Title row */}
         <div className="no-drag flex items-start justify-between">
           <div>
-            <h1 className="text-[22px] font-bold text-[var(--color-text-primary)]">Bluesky Chat</h1>
+            <h1 className="text-[22px] font-bold text-[var(--color-text-primary)]">{config.name} Chat</h1>
             <p className="text-[11px] text-[var(--color-text-tertiary)]">Secured by XMTP</p>
           </div>
           <button
@@ -126,7 +127,7 @@ export function Sidebar() {
         {profile && (
           <UserLockup
             profile={profile}
-            onClick={() => openUserProfile(profile.did)}
+            onClick={() => openUserProfile(profile.id)}
           />
         )}
 

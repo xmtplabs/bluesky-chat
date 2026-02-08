@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { BlueskyProfile } from '../types'
-import { blueskyService } from '../services/bluesky'
+import type { UserProfile } from '../types'
+import { provider } from '../provider'
 import { xmtpService, logStartupDiagnostics, verboseLog, verboseWarn, verboseGroup, verboseGroupEnd } from '../services/xmtp'
 import { identityService } from '../services/identity'
 import { getOrCreatePrivateKey, createXMTPSigner, getAddressFromPrivateKey, signDidWithInstallationKey, hasExistingKey } from '../services/signer'
@@ -21,9 +21,9 @@ export type OnboardingPhase =
   | { phase: 'backup-dismissed' }   // Dismissed backup prompt
 
 interface AuthState {
-  // Bluesky
-  blueskyProfile: BlueskyProfile | null
-  isBlueskyLoggedIn: boolean
+  // Identity
+  profile: UserProfile | null
+  isLoggedIn: boolean
 
   // XMTP
   isXMTPConnected: boolean
@@ -42,10 +42,10 @@ interface AuthState {
 
   // Actions
   initializeServices: () => Promise<void>
-  loginWithBluesky: (handle: string) => Promise<void>
-  loginWithBlueskyPassword: (identifier: string, password: string) => Promise<void>
+  login: (handle: string) => Promise<void>
+  loginWithPassword: (identifier: string, password: string) => Promise<void>
   connectXMTP: () => Promise<void>
-  updateBlueskyProfile: (updates: { displayName?: string; description?: string; avatar?: Blob }) => Promise<void>
+  updateUserProfile: (updates: { displayName?: string; description?: string; avatar?: Blob }) => Promise<void>
   republishIdentity: () => Promise<void>
   revokeOtherInstallations: () => Promise<void>
   checkIdentityStatus: () => Promise<void>
@@ -86,8 +86,8 @@ export const useOnboardingStore = create<OnboardingState>()(
 )
 
 export const useAuthStore = create<AuthState>((set, get) => ({
-  blueskyProfile: null,
-  isBlueskyLoggedIn: false,
+  profile: null,
+  isLoggedIn: false,
   isXMTPConnected: false,
   xmtpAddress: null,
   xmtpInboxId: null,
@@ -109,18 +109,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // Initialize identity service
       await identityService.init()
 
-      // Initialize Bluesky service
-      await blueskyService.init()
-
-      // Check if already logged in
-      if (blueskyService.isLoggedIn()) {
-        const profile = await blueskyService.getMyProfile()
-        if (profile) {
-          set({ blueskyProfile: profile, isBlueskyLoggedIn: true })
-          identityService.cacheProfile(profile)
-          // Note: XMTP connection is handled by ConnectionProviderBridge
-          // which shows RestoreOpportunity for new users
-        }
+      // Try to restore existing provider session
+      const restored = await provider.restoreSession()
+      if (restored) {
+        set({ profile: restored.profile, isLoggedIn: true })
+        identityService.cacheProfile(restored.profile)
+        // Note: XMTP connection is handled by ConnectionProviderBridge
+        // which shows RestoreOpportunity for new users
       }
     } catch (error) {
       console.error('Failed to initialize services:', error)
@@ -130,17 +125,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  loginWithBluesky: async (handle: string) => {
+  login: async (handle: string) => {
     set({ isLoading: true, error: null })
 
     try {
-      const profile = await blueskyService.login(handle)
-      set({ blueskyProfile: profile, isBlueskyLoggedIn: true })
+      const { profile } = await provider.login(handle)
+      set({ profile: profile, isLoggedIn: true })
       identityService.cacheProfile(profile)
       // Note: XMTP connection is handled by ConnectionProviderBridge
       // which shows RestoreOpportunity for new users
     } catch (error) {
-      console.error('Bluesky login failed:', error)
+      console.error('Login failed:', error)
       // User cancelled OAuth - silently reset to initial state
       const message = error instanceof Error ? error.message : 'Login failed'
       if (message.includes('cancelled') || message.includes('canceled')) {
@@ -154,17 +149,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  loginWithBlueskyPassword: async (identifier: string, password: string) => {
+  loginWithPassword: async (identifier: string, password: string) => {
     set({ isLoading: true, error: null })
 
     try {
-      const profile = await blueskyService.loginWithPassword(identifier, password)
-      set({ blueskyProfile: profile, isBlueskyLoggedIn: true })
+      if (!provider.loginWithPassword) {
+        throw new Error('Password login not supported by this provider')
+      }
+      const { profile } = await provider.loginWithPassword(identifier, password)
+      set({ profile: profile, isLoggedIn: true })
       identityService.cacheProfile(profile)
       // Note: XMTP connection is handled by ConnectionProviderBridge
       // which shows RestoreOpportunity for new users
     } catch (error) {
-      console.error('Bluesky login failed:', error)
+      console.error('Login failed:', error)
       set({ error: error instanceof Error ? error.message : 'Login failed' })
       throw error
     } finally {
@@ -182,16 +180,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ isLoading: true, error: null })
 
     try {
-      const { blueskyProfile } = get()
+      const { profile } = get()
 
       // Step 1: Initialize XMTP client FIRST (needed for verification)
-      // Each Bluesky account gets its own XMTP identity
-      if (!blueskyProfile) {
-        throw new Error('Bluesky profile required for XMTP connection')
+      // Each identity gets its own XMTP installation key
+      if (!profile) {
+        throw new Error('Profile required for XMTP connection')
       }
 
-      verboseLog('📡 connectXMTP: Getting or creating private key for DID:', blueskyProfile.did)
-      const privateKey = await getOrCreatePrivateKey(blueskyProfile.did)
+      verboseLog('📡 connectXMTP: Getting or creating private key for DID:', profile.id)
+      const privateKey = await getOrCreatePrivateKey(profile.id)
       const address = getAddressFromPrivateKey(privateKey)
       verboseLog('📡 connectXMTP: Got address:', address)
 
@@ -204,9 +202,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const inboxId = client.inboxId
 
       // Step 2: Check for existing identity binding in ATProto (now that XMTP is ready)
-      if (blueskyProfile && inboxId) {
+      if (profile && inboxId) {
         verboseLog('Checking for existing org.xmtp.inbox record...')
-        const existingBinding = await identityService.lookupInboxForDid(blueskyProfile.did)
+        const existingBinding = await provider.lookupInboxForIdentity(profile.id)
 
         if (existingBinding.found) {
           verboseLog('Found existing record with inboxId:', existingBinding.inboxId)
@@ -217,7 +215,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             verboseLog('Existing record matches our inbox ID - verifying signature...')
             const verifyResult = await identityService.verifyIdentityBinding(
               existingBinding.inboxId,
-              blueskyProfile.did,
+              profile.id,
               existingBinding.verificationSignature
             )
 
@@ -248,18 +246,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             }
 
             // Cache locally with a fresh signature for sending
-            const signature = await signDidWithInstallationKey(client, blueskyProfile.did)
+            const signature = await signDidWithInstallationKey(client, profile.id)
             await identityService.linkIdentity(
-              blueskyProfile.did,
-              blueskyProfile.handle,
+              profile.id,
+              profile.handle,
               inboxId,
               signature
             )
 
             // Register with backend to ensure it has this mapping
-            console.log('[auth] Registering existing mapping with backend for:', blueskyProfile.did)
+            console.log('[auth] Registering existing mapping with backend for:', profile.id)
             mappingBackend.registerMapping({
-              did: blueskyProfile.did
+              id: profile.id
             }).then((success) => {
               console.log('[auth] Backend registration result:', success ? 'success' : 'failed')
             }).catch((error) => {
@@ -283,10 +281,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             })
             // Don't overwrite - the existing record might be intentional
             // Just cache our local inbox without publishing
-            const signature = await signDidWithInstallationKey(client, blueskyProfile.did)
+            const signature = await signDidWithInstallationKey(client, profile.id)
             await identityService.linkIdentity(
-              blueskyProfile.did,
-              blueskyProfile.handle,
+              profile.id,
+              profile.handle,
               inboxId,
               signature
             )
@@ -294,36 +292,35 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         } else {
           // No existing record - create new binding
           verboseLog('No existing org.xmtp.inbox record found, creating new binding...')
-          const signature = await signDidWithInstallationKey(client, blueskyProfile.did)
+          const signature = await signDidWithInstallationKey(client, profile.id)
 
-          if (blueskyService.hasRepoWriteAccess()) {
-            verboseLog('Publishing new identity binding to ATProto PDS...')
+          if (provider.hasRepoWriteAccess?.() ?? false) {
+            verboseLog('Publishing new identity binding via provider...')
             try {
-              const agent = blueskyService.getAgent()
-              await identityService.publishIdentityToATProto(agent, inboxId, signature)
-              verboseLog('Identity published to ATProto PDS')
+              await provider.publishInboxBinding(inboxId, signature)
+              verboseLog('Identity published via provider')
 
               // Register with backend service for faster lookups
-              console.log('[auth] Registering mapping with backend for:', blueskyProfile.did)
+              console.log('[auth] Registering mapping with backend for:', profile.id)
               mappingBackend.registerMapping({
-                did: blueskyProfile.did
+                id: profile.id
               }).then((success) => {
                 console.log('[auth] Backend registration result:', success ? 'success' : 'failed')
               }).catch((error) => {
                 console.warn('[auth] Backend registration error (non-critical):', error)
               })
             } catch (publishError) {
-              verboseWarn('Failed to publish identity to ATProto:', publishError)
+              verboseWarn('Failed to publish identity via provider:', publishError)
             }
           } else {
             verboseLog(
-              'Skipping ATProto publish (no write access). Use App Password for full identity linking.'
+              'Skipping identity publish (no write access). Use App Password for full identity linking.'
             )
           }
 
           await identityService.linkIdentity(
-            blueskyProfile.did,
-            blueskyProfile.handle,
+            profile.id,
+            profile.handle,
             inboxId,
             signature
           )
@@ -347,12 +344,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  updateBlueskyProfile: async (updates: { displayName?: string; description?: string; avatar?: Blob }) => {
+  updateUserProfile: async (updates: { displayName?: string; description?: string; avatar?: Blob }) => {
     set({ isLoading: true, error: null })
 
     try {
-      const updatedProfile = await blueskyService.updateProfile(updates)
-      set({ blueskyProfile: updatedProfile })
+      if (!provider.updateProfile) {
+        throw new Error('Profile updates not supported by this provider')
+      }
+      const updatedProfile = await provider.updateProfile(updates)
+      set({ profile: updatedProfile })
       identityService.cacheProfile(updatedProfile)
     } catch (error) {
       console.error('Failed to update profile:', error)
@@ -364,18 +364,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   republishIdentity: async () => {
-    const { blueskyProfile, xmtpInboxId } = get()
+    const { profile, xmtpInboxId } = get()
 
-    if (!blueskyProfile || !xmtpInboxId) {
+    if (!profile || !xmtpInboxId) {
       throw new Error('Profile and XMTP connection required')
     }
 
-    if (!blueskyService.hasRepoWriteAccess()) {
-      throw new Error('App Password required to republish identity')
+    if (!(provider.hasRepoWriteAccess?.() ?? false)) {
+      throw new Error('Write access required to republish identity')
     }
 
     try {
-      const agent = blueskyService.getAgent()
       const client = xmtpService.getClient()
 
       if (!client) {
@@ -383,21 +382,21 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
 
       // Sign and publish with current installation
-      const signature = await signDidWithInstallationKey(client, blueskyProfile.did)
-      await identityService.publishIdentityToATProto(agent, xmtpInboxId, signature)
+      const signature = await signDidWithInstallationKey(client, profile.id)
+      await provider.publishInboxBinding(xmtpInboxId, signature)
 
       // Update local cache
       await identityService.linkIdentity(
-        blueskyProfile.did,
-        blueskyProfile.handle,
+        profile.id,
+        profile.handle,
         xmtpInboxId,
         signature
       )
 
       // Register with backend service for faster lookups
-      console.log('[auth] Registering mapping with backend for:', blueskyProfile.did)
+      console.log('[auth] Registering mapping with backend for:', profile.id)
       mappingBackend.registerMapping({
-        did: blueskyProfile.did
+        id: profile.id
       }).then((success) => {
         console.log('[auth] Backend registration result:', success ? 'success' : 'failed')
       }).catch((error) => {
@@ -420,9 +419,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   revokeOtherInstallations: async () => {
-    const { blueskyProfile, xmtpInboxId } = get()
+    const { profile, xmtpInboxId } = get()
 
-    if (!blueskyProfile || !xmtpInboxId) {
+    if (!profile || !xmtpInboxId) {
       throw new Error('Profile and XMTP connection required')
     }
 
@@ -430,28 +429,27 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // This ensures the signature remains valid after revocation.
     // Without this, if another installation signed the record, revoking it would
     // orphan the signature and cause verification to fail.
-    if (blueskyService.hasRepoWriteAccess()) {
+    if (provider.hasRepoWriteAccess?.() ?? false) {
       try {
-        const agent = blueskyService.getAgent()
         const client = xmtpService.getClient()
 
         if (client) {
-          console.log('Re-signing ATProto record before revoking other installations...')
-          const signature = await signDidWithInstallationKey(client, blueskyProfile.did)
-          await identityService.publishIdentityToATProto(agent, xmtpInboxId, signature)
+          console.log('Re-signing identity record before revoking other installations...')
+          const signature = await signDidWithInstallationKey(client, profile.id)
+          await provider.publishInboxBinding(xmtpInboxId, signature)
 
           // Update local cache
           await identityService.linkIdentity(
-            blueskyProfile.did,
-            blueskyProfile.handle,
+            profile.id,
+            profile.handle,
             xmtpInboxId,
             signature
           )
 
           // Register with backend service
-          console.log('[auth] Registering mapping with backend for:', blueskyProfile.did)
+          console.log('[auth] Registering mapping with backend for:', profile.id)
           mappingBackend.registerMapping({
-            did: blueskyProfile.did
+            id: profile.id
           }).then((success) => {
             console.log('[auth] Backend registration result:', success ? 'success' : 'failed')
           }).catch((error) => {
@@ -480,14 +478,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   checkIdentityStatus: async () => {
-    const { blueskyProfile, xmtpInboxId } = get()
+    const { profile, xmtpInboxId } = get()
 
-    if (!blueskyProfile || !xmtpInboxId) {
+    if (!profile || !xmtpInboxId) {
       return
     }
 
     try {
-      const result = await identityService.lookupInboxForDid(blueskyProfile.did)
+      const result = await provider.lookupInboxForIdentity(profile.id)
 
       if (!result.found) {
         // No published record (or lookup failed)
@@ -513,7 +511,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // Same inbox - verify signature
       const verifyResult = await identityService.verifyIdentityBinding(
         result.inboxId,
-        blueskyProfile.did,
+        profile.id,
         result.verificationSignature
       )
 
@@ -538,7 +536,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ isLoading: true })
 
     try {
-      await blueskyService.logout()
+      await provider.logout()
       await xmtpService.disconnect()
       identityService.clearStatusCache()
 
@@ -551,8 +549,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       identityService.clearProfileCache()
 
       set({
-        blueskyProfile: null,
-        isBlueskyLoggedIn: false,
+        profile: null,
+        isLoggedIn: false,
         isXMTPConnected: false,
         xmtpAddress: null,
         xmtpInboxId: null,

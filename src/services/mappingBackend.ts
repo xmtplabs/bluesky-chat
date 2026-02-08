@@ -9,8 +9,12 @@
  * - Persistent retry queue for failed registrations
  */
 
-// Backend URL - can be overridden via environment variable
-const BACKEND_URL = import.meta.env.VITE_MAPPING_BACKEND_URL ?? 'https://bluesky-chat-mapping-service.xmtp.workers.dev'
+import { config } from '../provider'
+
+// Backend URL - env var > provider config > hardcoded fallback
+const BACKEND_URL = import.meta.env.VITE_MAPPING_BACKEND_URL
+  || config.mappingServiceUrl
+  || 'https://bluesky-chat-mapping-service.xmtp.workers.dev'
 
 // Circuit breaker configuration
 const CIRCUIT_BREAKER_THRESHOLD = 5 // Open after 5 consecutive failures
@@ -26,7 +30,7 @@ const PENDING_REGISTRATIONS_KEY = 'pending-mapping-registrations'
 const RETRY_INTERVAL_MS = 30_000 // Retry pending registrations every 30s
 
 interface LookupResponse {
-  did: string
+  id: string
   inboxId: string
 }
 
@@ -36,7 +40,7 @@ interface BulkResponse {
 }
 
 interface RegisterRequest {
-  did: string
+  id: string
 }
 
 type CircuitState = 'closed' | 'open' | 'half-open'
@@ -106,7 +110,7 @@ class MappingBackendClient {
     try {
       console.log(`[MappingBackend] Retrying ${this.pendingRegistrations.size} pending registrations`)
       for (const did of [...this.pendingRegistrations]) {
-        const success = await this.doRegister({ did })
+        const success = await this.doRegister({ id: did })
         if (success) {
           this.pendingRegistrations.delete(did)
           this.savePendingRegistrations()
@@ -233,11 +237,11 @@ class MappingBackendClient {
   async registerMapping(params: RegisterRequest): Promise<boolean> {
     const success = await this.doRegister(params)
     if (success) {
-      if (this.pendingRegistrations.delete(params.did)) {
+      if (this.pendingRegistrations.delete(params.id)) {
         this.savePendingRegistrations()
       }
     } else {
-      this.pendingRegistrations.add(params.did)
+      this.pendingRegistrations.add(params.id)
       this.savePendingRegistrations()
     }
     return success
@@ -252,7 +256,7 @@ class MappingBackendClient {
       const response = await this.fetchWithRetry(`${BACKEND_URL}/v1/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(params)
+        body: JSON.stringify({ did: params.id })
       })
 
       if (response.ok) {
@@ -306,7 +310,8 @@ class MappingBackendClient {
 
       if (response.ok) {
         this.recordSuccess()
-        return await response.json() as LookupResponse
+        const data = await response.json() as { did: string; inboxId: string }
+        return { id: data.did, inboxId: data.inboxId }
       }
 
       if (response.status === 404) {
@@ -335,7 +340,8 @@ class MappingBackendClient {
 
       if (response.ok) {
         this.recordSuccess()
-        return await response.json() as LookupResponse
+        const data = await response.json() as { did: string; inboxId: string }
+        return { id: data.did, inboxId: data.inboxId }
       }
 
       if (response.status === 404) {
@@ -369,7 +375,11 @@ class MappingBackendClient {
 
       if (response.ok) {
         this.recordSuccess()
-        return await response.json() as BulkResponse
+        const data = await response.json() as { mappings: { did: string; inboxId: string }[]; notFound: string[] }
+        return {
+          mappings: data.mappings.map((m) => ({ id: m.did, inboxId: m.inboxId })),
+          notFound: data.notFound
+        }
       }
 
       this.recordFailure()

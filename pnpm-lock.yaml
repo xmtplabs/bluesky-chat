@@ -134,6 +134,23 @@ importers:
         specifier: ^4.0.0
         version: 4.62.0(@cloudflare/workers-types@4.20260205.0)
 
+  packages/provider-bluesky:
+    dependencies:
+      '@atproto/api':
+        specifier: 0.15.5
+        version: 0.15.5
+      '@atproto/oauth-client-browser':
+        specifier: ^0.3.9
+        version: 0.3.40
+      '@atproto/oauth-types':
+        specifier: ^0.6.2
+        version: 0.6.2
+      '@bluesky-chat/provider-interface':
+        specifier: workspace:*
+        version: link:../provider-interface
+
+  packages/provider-interface: {}
+
 packages:
 
   7zip-bin@5.2.0:

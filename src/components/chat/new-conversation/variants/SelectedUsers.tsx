@@ -15,7 +15,7 @@ export function SelectedUsers() {
       <div className="flex flex-wrap gap-1.5">
         {selectedUsers.map((user) => (
           <div
-            key={user.did}
+            key={user.id}
             className="flex items-center gap-1.5 pl-1 pr-2 py-1 bg-[var(--color-surface-selected)] rounded-full"
           >
             <Avatar src={user.avatar} fallback={user.displayName || user.handle} size="xs" />
@@ -23,7 +23,7 @@ export function SelectedUsers() {
               {user.displayName || user.handle}
             </span>
             <button
-              onClick={() => actions.removeUser(user.did)}
+              onClick={() => actions.removeUser(user.id)}
               className="p-0.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] rounded-full transition-colors"
             >
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

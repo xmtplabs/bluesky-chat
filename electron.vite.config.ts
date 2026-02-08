@@ -4,6 +4,8 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import pkg from './package.json'
 
+const provider = process.env.CHAT_PROVIDER || 'bluesky'
+
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin({ exclude: ['electron-updater'] })],
@@ -48,7 +50,8 @@ export default defineConfig({
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
-        '@': resolve(__dirname, 'src')
+        '@': resolve(__dirname, 'src'),
+        '@provider': resolve(__dirname, `packages/provider-${provider}/src`),
       },
       // Ensure single instance of wasm-bindings to avoid WASM conflicts
       dedupe: ['@xmtp/wasm-bindings']

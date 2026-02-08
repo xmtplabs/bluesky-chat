@@ -1,5 +1,6 @@
 import type { DurableObjectState, DurableObject } from '@cloudflare/workers-types'
 import type { Env } from '../types'
+import type { Indexer } from './types'
 import { upsertMapping, deleteMapping } from '../services/db'
 import { verifyInboxOwnership } from '../services/verify'
 
@@ -40,7 +41,7 @@ interface JetstreamEvent {
  * - Concurrent event processing (up to 10 parallel)
  * - Cursor saved after successful DB operations
  */
-export class JetstreamIndexer implements DurableObject {
+export class BlueskyIndexer implements DurableObject, Indexer {
   private state: DurableObjectState
   private env: Env
   private ws: WebSocket | null = null

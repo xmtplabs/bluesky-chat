@@ -1,4 +1,5 @@
 import { useSettingsStore } from '../../stores/settingsStore'
+import { config } from '../../provider'
 
 export function NotificationSettings() {
   const {
@@ -81,7 +82,7 @@ export function NotificationSettings() {
           About
         </h3>
         <p className="text-sm text-gray-500">
-          Bluesky Chat uses end-to-end encryption powered by the XMTP network.
+          {config.name} Chat uses end-to-end encryption powered by the XMTP network.
           Your messages are encrypted and can only be read by you and your conversation partners.
         </p>
         <div className="flex space-x-4 text-sm">
@@ -99,7 +100,7 @@ export function NotificationSettings() {
             rel="noopener noreferrer"
             className="text-blue-500 hover:underline"
           >
-            Bluesky
+            {config.name}
           </a>
         </div>
       </div>

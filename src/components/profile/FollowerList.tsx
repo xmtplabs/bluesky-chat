@@ -1,11 +1,11 @@
 import { useEffect } from 'react'
-import { useBluesky } from '../../hooks/useBluesky'
-import type { BlueskyProfile } from '../../types'
+import { useIdentity } from '../../hooks/useIdentity'
+import type { UserProfile } from '../../types'
 import { Avatar } from '../shared/Avatar'
 
 interface FollowerListProps {
   type: 'followers' | 'following'
-  onSelectUser?: (user: BlueskyProfile) => void
+  onSelectUser?: (user: UserProfile) => void
 }
 
 export function FollowerList({ type, onSelectUser }: FollowerListProps) {
@@ -19,7 +19,7 @@ export function FollowerList({ type, onSelectUser }: FollowerListProps) {
     hasMoreFollowers,
     hasMoreFollowing,
     isLoading
-  } = useBluesky()
+  } = useIdentity()
 
   useEffect(() => {
     if (type === 'followers') {
@@ -61,7 +61,7 @@ export function FollowerList({ type, onSelectUser }: FollowerListProps) {
     <div className="divide-y divide-gray-200">
       {users.map((user) => (
         <button
-          key={user.did}
+          key={user.id}
           onClick={() => onSelectUser?.(user)}
           className="w-full p-3 flex items-center space-x-3 hover:bg-gray-50 transition-colors text-left"
         >

@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect, type ReactNode } from 'react
 import { SettingsProvider, type SettingsContextValue } from './context/SettingsContext'
 import { useUIStore } from '../../stores/uiStore'
 import { useAuthStore } from '../../stores/authStore'
-import { blueskyService } from '../../services/bluesky'
+import { provider } from '../../provider'
 
 interface SettingsProviderBridgeProps {
   children: ReactNode
@@ -15,7 +15,7 @@ interface SettingsProviderBridgeProps {
 export function SettingsProviderBridge({ children }: SettingsProviderBridgeProps) {
   const { toggleInboxSettings } = useUIStore()
   const {
-    blueskyProfile,
+    profile,
     xmtpInboxId,
     identityMismatch,
     signatureInvalid,
@@ -35,7 +35,7 @@ export function SettingsProviderBridge({ children }: SettingsProviderBridgeProps
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
 
-  const hasWriteAccess = blueskyService.hasRepoWriteAccess()
+  const hasWriteAccess = provider.hasRepoWriteAccess?.() ?? false
 
   // Check identity status on mount
   useEffect(() => {
@@ -107,7 +107,7 @@ export function SettingsProviderBridge({ children }: SettingsProviderBridgeProps
       logout
     },
     meta: {
-      blueskyProfile,
+      profile,
       xmtpInboxId,
       identityMismatch,
       signatureInvalid,
@@ -125,7 +125,7 @@ export function SettingsProviderBridge({ children }: SettingsProviderBridgeProps
     checkIdentityStatus,
     close,
     logout,
-    blueskyProfile,
+    profile,
     xmtpInboxId,
     identityMismatch,
     signatureInvalid,

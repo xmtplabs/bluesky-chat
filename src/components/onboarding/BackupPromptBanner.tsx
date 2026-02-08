@@ -7,11 +7,11 @@ import { useUIStore } from '../../stores/uiStore'
  * Does not show if IdentityMismatchBanner is showing (avoid two banners).
  */
 export function BackupPromptBanner() {
-  const { blueskyProfile, identityMismatch, signatureInvalid, mismatchDismissed } = useAuthStore()
+  const { profile, identityMismatch, signatureInvalid, mismatchDismissed } = useAuthStore()
   const { getPhase, setPhase } = useOnboardingStore()
   const { setSidebarView } = useUIStore()
 
-  if (!blueskyProfile?.did) {
+  if (!profile?.id) {
     return null
   }
 
@@ -21,7 +21,7 @@ export function BackupPromptBanner() {
     return null
   }
 
-  const onboardingPhase = getPhase(blueskyProfile.did)
+  const onboardingPhase = getPhase(profile.id)
 
   // Only show for users who skipped restore and haven't backed up yet
   if (onboardingPhase.phase !== 'restore-skipped') {
@@ -33,7 +33,7 @@ export function BackupPromptBanner() {
   }
 
   const handleDismiss = () => {
-    setPhase(blueskyProfile.did, { phase: 'backup-dismissed' })
+    setPhase(profile.id, { phase: 'backup-dismissed' })
   }
 
   return (

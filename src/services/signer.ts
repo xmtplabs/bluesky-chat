@@ -7,15 +7,15 @@ import { verboseLog, verboseWarn } from './xmtp'
 const WALLET_KEY_PREFIX = 'xmtp-wallet-key-'
 
 /**
- * Get the storage key for a specific Bluesky DID.
- * Each Bluesky account gets its own XMTP identity.
+ * Get the storage key for a specific identity ID.
+ * Each identity gets its own XMTP identity.
  */
 function getStorageKey(did: string): string {
   return `${WALLET_KEY_PREFIX}${did}`
 }
 
 /**
- * Get or create a private key for a specific Bluesky DID.
+ * Get or create a private key for a specific identity ID.
  * Each DID has its own XMTP identity to prevent cross-account issues.
  */
 export async function getOrCreatePrivateKey(did: string): Promise<Hex> {
@@ -91,7 +91,7 @@ export async function clearPrivateKey(did: string): Promise<void> {
 }
 
 /**
- * Check if a private key exists for a specific Bluesky DID.
+ * Check if a private key exists for a specific identity ID.
  */
 export async function hasExistingKey(did: string): Promise<boolean> {
   try {
@@ -114,7 +114,7 @@ function uint8ArrayToBase64(bytes: Uint8Array): string {
 
 /**
  * Sign a DID using the XMTP client's installation key.
- * This creates the cryptographic binding between the Bluesky DID and XMTP inbox.
+ * This creates the cryptographic binding between the identity ID and XMTP inbox.
  */
 export async function signDidWithInstallationKey(client: Client, did: string): Promise<string> {
   const signatureBytes = await client.signWithInstallationKey(did)

@@ -12,7 +12,9 @@
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "@provider": ["packages/provider-bluesky/src"],
+      "@provider/*": ["packages/provider-bluesky/src/*"]
     }
   },
   "include": ["src", "electron"],

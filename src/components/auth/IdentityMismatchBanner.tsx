@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import { useAuthStore } from '../../stores/authStore'
 import { useUIStore } from '../../stores/uiStore'
-import { blueskyService } from '../../services/bluesky'
+import { provider } from '../../provider'
 
 export function IdentityMismatchBanner() {
   const {
@@ -16,7 +16,7 @@ export function IdentityMismatchBanner() {
   const [showSuccess, setShowSuccess] = useState(false)
   const successRef = useRef(false)
 
-  const hasWriteAccess = blueskyService.hasRepoWriteAccess()
+  const hasWriteAccess = provider.hasRepoWriteAccess?.() ?? false
 
   // Show banner for either mismatch or invalid signature (or briefly after fix)
   const hasIssue = identityMismatch || signatureInvalid || showSuccess || successRef.current

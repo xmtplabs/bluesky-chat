@@ -1,6 +1,6 @@
 import { createSafeContext } from '../../../lib/context/createSafeContext'
 import type { ContextValue } from '../../../lib/context/types'
-import type { ChatConversation, ChatMessage, BlueskyProfile } from '../../../types'
+import type { ChatConversation, ChatMessage, UserProfile } from '../../../types'
 
 export interface ChatState {
   conversation: ChatConversation | null
@@ -17,7 +17,7 @@ export interface ChatActions {
 export interface ChatMeta {
   inboxId: string | null
   variant: 'dm' | 'group'
-  myProfile: BlueskyProfile | null
+  myProfile: UserProfile | null
 }
 
 export type ChatContextValue = ContextValue<ChatState, ChatActions, ChatMeta>

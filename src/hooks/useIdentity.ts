@@ -1,15 +1,15 @@
 import { useCallback } from 'react'
 import { useAuthStore } from '../stores/authStore'
 import { useProfileStore } from '../stores/profileStore'
-import { blueskyService } from '../services/bluesky'
-import type { BlueskyProfile } from '../types'
+import { provider } from '../provider'
+import type { UserProfile } from '../types'
 
-export function useBluesky() {
+export function useIdentity() {
   const {
-    blueskyProfile,
-    isBlueskyLoggedIn,
-    loginWithBluesky,
-    loginWithBlueskyPassword,
+    profile,
+    isLoggedIn,
+    login,
+    loginWithPassword,
     logout,
     isLoading: isAuthLoading,
     error: authError
@@ -34,23 +34,23 @@ export function useBluesky() {
   } = useProfileStore()
 
   const getProfile = useCallback(
-    async (handleOrDid: string): Promise<BlueskyProfile | null> => {
-      return blueskyService.getProfile(handleOrDid)
+    async (handleOrDid: string): Promise<UserProfile | null> => {
+      return provider.getProfile(handleOrDid)
     },
     []
   )
 
   return {
     // Auth state
-    profile: blueskyProfile,
-    isLoggedIn: isBlueskyLoggedIn,
+    profile: profile,
+    isLoggedIn: isLoggedIn,
     isLoading: isAuthLoading || isProfileLoading,
     isSearching,
     authError,
 
     // Auth actions
-    login: loginWithBluesky,
-    loginWithPassword: loginWithBlueskyPassword,
+    login: login,
+    loginWithPassword: loginWithPassword,
     logout,
 
     // Profile actions

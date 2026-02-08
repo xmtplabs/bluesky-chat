@@ -30,7 +30,7 @@ export function getGroupMemberNames(memberInboxIds: string[] | undefined, maxNam
   const names: string[] = []
   for (const inboxId of otherMembers) {
     if (names.length >= maxNames) break
-    const did = identityService.getDidFromInboxId(inboxId)
+    const did = identityService.getIdFromInboxId(inboxId)
     if (did) {
       const profile = identityService.getCachedProfile(did)
       if (profile) {

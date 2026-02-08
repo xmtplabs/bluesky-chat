@@ -1,7 +1,7 @@
 import { useMemo, useCallback, type ReactNode } from 'react'
 import { ChatProvider, type ChatContextValue, type ChatMeta } from './context/ChatContext'
 import { useXMTP } from '../../hooks/useXMTP'
-import { useBluesky } from '../../hooks/useBluesky'
+import { useIdentity } from '../../hooks/useIdentity'
 import { useConversations } from '../../hooks/useConversations'
 
 interface ChatProviderBridgeProps {
@@ -15,7 +15,7 @@ interface ChatProviderBridgeProps {
  */
 export function ChatProviderBridge({ children }: ChatProviderBridgeProps) {
   const { selectedConversation, messages, inboxId, isLoading, isSending, sendMessage } = useXMTP()
-  const { profile } = useBluesky()
+  const { profile } = useIdentity()
   const { markAsRead } = useConversations()
 
   const handleSendMessage = useCallback(async (content: string) => {

@@ -1,8 +1,8 @@
-import type { BlueskyProfile } from '../../types'
+import type { UserProfile } from '../../types'
 import { Avatar } from './Avatar'
 
 interface UserLockupProps {
-  profile: BlueskyProfile
+  profile: UserProfile
   onClick?: () => void
   size?: 'sm' | 'md'
 }

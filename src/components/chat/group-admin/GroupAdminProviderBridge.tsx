@@ -7,13 +7,13 @@ import {
   type EditMode
 } from './context/GroupAdminContext'
 import { xmtpService } from '../../../services/xmtp'
-import { blueskyService } from '../../../services/bluesky'
+import { provider } from '../../../provider'
 import { identityService } from '../../../services/identity'
 import { useChatStore } from '../../../stores/chatStore'
 import { useXmtpStatusChecker } from '../../../hooks/useXmtpStatusChecker'
 import { resolveUsersToInboxIds } from '../../../utils/resolveUsers'
 import { getErrorMessage } from '../../../utils/errors'
-import type { BlueskyProfile } from '../../../types'
+import type { UserProfile } from '../../../types'
 import type { Group } from '@xmtp/browser-sdk'
 
 const MAX_NAME_LENGTH = 64
@@ -42,7 +42,7 @@ export function GroupAdminProviderBridge({ children, groupId, onClose }: GroupAd
   const [draftImageFile, setDraftImageFile] = useState<Blob | null>(null)
   const [draftImagePreview, setDraftImagePreview] = useState<string | null>(null)
   const [memberSearchQuery, setMemberSearchQuery] = useState('')
-  const [selectedMembersToAdd, setSelectedMembersToAdd] = useState<BlueskyProfile[]>([])
+  const [selectedMembersToAdd, setSelectedMembersToAdd] = useState<UserProfile[]>([])
   const { xmtpStatus, checkXmtpStatus } = useXmtpStatusChecker()
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -121,13 +121,13 @@ export function GroupAdminProviderBridge({ children, groupId, onClose }: GroupAd
           }
 
           // Try to resolve profile (check local cache, then backend)
-          let profile: BlueskyProfile | undefined
-          const did = await identityService.resolveInboxToDid(member.inboxId)
+          let profile: UserProfile | undefined
+          const did = await identityService.resolveInboxToId(member.inboxId)
           if (did) {
             profile = identityService.getCachedProfile(did) || undefined
             if (!profile) {
               try {
-                profile = (await blueskyService.getProfile(did)) || undefined
+                profile = (await provider.getProfile(did)) || undefined
                 if (profile) {
                   identityService.cacheProfile(profile)
                 }
@@ -191,12 +191,12 @@ export function GroupAdminProviderBridge({ children, groupId, onClose }: GroupAd
     setError(null)
   }, [])
 
-  const handleToggleMemberToAdd = useCallback((profile: BlueskyProfile) => {
+  const handleToggleMemberToAdd = useCallback((profile: UserProfile) => {
     // Guard is handled by the UI (disabled={!canMessage}), so only use functional updates
     setSelectedMembersToAdd((prev) => {
-      const exists = prev.some((u) => u.did === profile.did)
+      const exists = prev.some((u) => u.id === profile.id)
       if (exists) {
-        return prev.filter((u) => u.did !== profile.did)
+        return prev.filter((u) => u.id !== profile.id)
       }
       if (prev.length >= 250) {
         setError('Maximum 250 members can be added at once')
@@ -208,7 +208,7 @@ export function GroupAdminProviderBridge({ children, groupId, onClose }: GroupAd
   }, [])
 
   const handleRemoveMemberToAdd = useCallback((did: string) => {
-    setSelectedMembersToAdd((prev) => prev.filter((u) => u.did !== did))
+    setSelectedMembersToAdd((prev) => prev.filter((u) => u.id !== did))
   }, [])
 
   const handleSaveMetadata = useCallback(async () => {
@@ -228,8 +228,8 @@ export function GroupAdminProviderBridge({ children, groupId, onClose }: GroupAd
         await xmtpService.updateGroupDescription(group, draftDescription.trim())
       }
 
-      // Update image if changed - use data URL directly since Bluesky CDN
-      // requires blobs to be anchored to records
+      // Update image if changed - use data URL directly since provider CDN
+      // may require blobs to be anchored to records
       if (draftImageFile && draftImagePreview) {
         await xmtpService.updateGroupImageUrl(group, draftImagePreview)
       }

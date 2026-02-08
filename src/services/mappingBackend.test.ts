@@ -23,7 +23,7 @@ async function registerWithTimers(
   client: Awaited<ReturnType<typeof createClient>>,
   did: string
 ): Promise<boolean> {
-  const promise = client.registerMapping({ did })
+  const promise = client.registerMapping({ id: did })
   await vi.advanceTimersByTimeAsync(10_000)
   return promise
 }

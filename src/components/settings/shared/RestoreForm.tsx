@@ -71,7 +71,7 @@ export function RestoreForm() {
   }
 
   const handleImportKey = async () => {
-    if (!meta.blueskyProfile?.did || !selectedFile || !importPassword) return
+    if (!meta.profile?.id || !selectedFile || !importPassword) return
 
     setIsImporting(true)
     actions.setError(null)
@@ -104,7 +104,7 @@ export function RestoreForm() {
         return
       }
 
-      await importPrivateKey(meta.blueskyProfile.did, decryptedKey as Hex)
+      await importPrivateKey(meta.profile.id, decryptedKey as Hex)
       setImportComplete(true)
       setSelectedFile(null)
       if (fileInputRef.current) {

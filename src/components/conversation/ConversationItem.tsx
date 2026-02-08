@@ -39,8 +39,8 @@ export function ConversationItem({ conversation, isSelected, onSelect }: Convers
 
   const handleAvatarClick = (e: React.MouseEvent) => {
     e.stopPropagation()
-    if (!conversation.isGroup && conversation.peerProfile?.did) {
-      openUserProfile(conversation.peerProfile.did)
+    if (!conversation.isGroup && conversation.peerProfile?.id) {
+      openUserProfile(conversation.peerProfile.id)
     }
   }
 
@@ -67,7 +67,7 @@ export function ConversationItem({ conversation, isSelected, onSelect }: Convers
     >
       {/* Avatar */}
       <div className="relative flex-shrink-0">
-        {!conversation.isGroup && conversation.peerProfile?.did ? (
+        {!conversation.isGroup && conversation.peerProfile?.id ? (
           <div
             role="button"
             tabIndex={0}

@@ -1,9 +1,9 @@
 import { Agent, AtpAgent, type AppBskyActorDefs } from '@atproto/api'
 import { BrowserOAuthClient, type OAuthSession } from '@atproto/oauth-client-browser'
 import { buildAtprotoLoopbackClientId } from '@atproto/oauth-types'
-import type { BlueskyProfile } from '../types'
+import type { UserProfile } from '@bluesky-chat/provider-interface'
 
-class BlueskyService {
+export class BlueskyService {
   private oauthClient: BrowserOAuthClient | null = null
   // Use Agent for OAuth, AtpAgent for password auth
   private agent: Agent | AtpAgent | null = null
@@ -99,7 +99,7 @@ class BlueskyService {
     return false
   }
 
-  async login(handle: string): Promise<BlueskyProfile> {
+  async login(handle: string): Promise<UserProfile> {
     if (!this.oauthClient) {
       throw new Error('OAuth not available. Please use App Password login instead.')
     }
@@ -163,7 +163,7 @@ class BlueskyService {
     return profile
   }
 
-  async loginWithPassword(identifier: string, password: string): Promise<BlueskyProfile> {
+  async loginWithPassword(identifier: string, password: string): Promise<UserProfile> {
     // Direct password login (simpler for development)
     const atpAgent = new AtpAgent({ service: 'https://bsky.social' })
 
@@ -188,7 +188,7 @@ class BlueskyService {
     return profile
   }
 
-  async getMyProfile(): Promise<BlueskyProfile | null> {
+  async getMyProfile(): Promise<UserProfile | null> {
     if (!this.agent) return null
 
     try {
@@ -217,7 +217,7 @@ class BlueskyService {
   }
 
   // Fetch profile from public API (doesn't require auth)
-  private async getProfileFromPublicApi(handleOrDid: string): Promise<BlueskyProfile | null> {
+  private async getProfileFromPublicApi(handleOrDid: string): Promise<UserProfile | null> {
     try {
       const response = await fetch(
         `https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=${encodeURIComponent(handleOrDid)}`
@@ -235,7 +235,7 @@ class BlueskyService {
     }
   }
 
-  async getProfile(handleOrDid: string): Promise<BlueskyProfile | null> {
+  async getProfile(handleOrDid: string): Promise<UserProfile | null> {
     // Try authenticated request first, fall back to public API
     if (this.agent) {
       try {
@@ -252,7 +252,7 @@ class BlueskyService {
     return this.getProfileFromPublicApi(handleOrDid)
   }
 
-  async searchUsers(query: string, limit = 10): Promise<BlueskyProfile[]> {
+  async searchUsers(query: string, limit = 10): Promise<UserProfile[]> {
     // Try authenticated request first
     if (this.agent) {
       try {
@@ -270,7 +270,7 @@ class BlueskyService {
     return this.searchUsersFromPublicApi(query, limit)
   }
 
-  private async searchUsersFromPublicApi(query: string, limit: number): Promise<BlueskyProfile[]> {
+  private async searchUsersFromPublicApi(query: string, limit: number): Promise<UserProfile[]> {
     try {
       const response = await fetch(
         `https://public.api.bsky.app/xrpc/app.bsky.actor.searchActors?q=${encodeURIComponent(query)}&limit=${limit}`
@@ -291,7 +291,7 @@ class BlueskyService {
   async getFollowers(
     handleOrDid?: string,
     cursor?: string
-  ): Promise<{ followers: BlueskyProfile[]; cursor?: string }> {
+  ): Promise<{ followers: UserProfile[]; cursor?: string }> {
     const actor = handleOrDid || this.getDid() || ''
     if (!actor) return { followers: [] }
 
@@ -320,7 +320,7 @@ class BlueskyService {
   private async getFollowersFromPublicApi(
     actor: string,
     cursor?: string
-  ): Promise<{ followers: BlueskyProfile[]; cursor?: string }> {
+  ): Promise<{ followers: UserProfile[]; cursor?: string }> {
     try {
       let url = `https://public.api.bsky.app/xrpc/app.bsky.graph.getFollowers?actor=${encodeURIComponent(actor)}&limit=50`
       if (cursor) {
@@ -347,7 +347,7 @@ class BlueskyService {
   async getFollowing(
     handleOrDid?: string,
     cursor?: string
-  ): Promise<{ following: BlueskyProfile[]; cursor?: string }> {
+  ): Promise<{ following: UserProfile[]; cursor?: string }> {
     const actor = handleOrDid || this.getDid() || ''
     if (!actor) return { following: [] }
 
@@ -376,7 +376,7 @@ class BlueskyService {
   private async getFollowingFromPublicApi(
     actor: string,
     cursor?: string
-  ): Promise<{ following: BlueskyProfile[]; cursor?: string }> {
+  ): Promise<{ following: UserProfile[]; cursor?: string }> {
     try {
       let url = `https://public.api.bsky.app/xrpc/app.bsky.graph.getFollows?actor=${encodeURIComponent(actor)}&limit=50`
       if (cursor) {
@@ -501,7 +501,7 @@ class BlueskyService {
     try {
       do {
         const { following, cursor: nextCursor } = await this.getFollowing(undefined, cursor)
-        following.forEach((f) => allDids.add(f.did))
+        following.forEach((f) => allDids.add(f.id))
         cursor = nextCursor
       } while (cursor)
 
@@ -525,7 +525,7 @@ class BlueskyService {
     displayName?: string
     description?: string
     avatar?: Blob
-  }): Promise<BlueskyProfile> {
+  }): Promise<UserProfile> {
     if (!this.agent) {
       throw new Error('Not logged in')
     }
@@ -632,9 +632,9 @@ class BlueskyService {
       | AppBskyActorDefs.ProfileViewBasic
       | AppBskyActorDefs.ProfileView
       | AppBskyActorDefs.ProfileViewDetailed
-  ): BlueskyProfile {
+  ): UserProfile {
     return {
-      did: data.did,
+      id: data.did,
       handle: data.handle,
       displayName: data.displayName,
       avatar: data.avatar,
@@ -644,5 +644,3 @@ class BlueskyService {
     }
   }
 }
-
-export const blueskyService = new BlueskyService()

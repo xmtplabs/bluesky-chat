@@ -1,12 +1,13 @@
 import { useSettings } from '../context/SettingsContext'
+import { config } from '../../../provider'
 
 /**
- * Displays the Bluesky <-> Inbox identity link visualization and status.
+ * Displays the identity <-> inbox link visualization and status.
  */
 export function IdentityStatus() {
   const { state, actions, meta } = useSettings()
   const { isChecking, isRepublishing } = state
-  const { identityMismatch, signatureInvalid, blueskyProfile, hasWriteAccess } = meta
+  const { identityMismatch, signatureInvalid, profile, hasWriteAccess } = meta
 
   return (
     <div className={`rounded-xl ${
@@ -17,7 +18,7 @@ export function IdentityStatus() {
       {/* Visualization */}
       <div className="py-4">
         <div className="flex items-center justify-center">
-          {/* Bluesky Identity */}
+          {/* Provider Identity */}
           <div className="flex flex-col items-center w-16">
             <div className="w-10 h-10 rounded-full bg-[var(--color-bsky-500)] flex items-center justify-center shadow-sm">
               <svg className="w-4.5 h-4.5 text-white" viewBox="0 0 568 501" fill="currentColor">
@@ -25,7 +26,7 @@ export function IdentityStatus() {
               </svg>
             </div>
             <span className="text-[10px] font-medium text-[var(--color-text-secondary)] mt-1.5 text-center truncate max-w-full">
-              {blueskyProfile?.handle ? `@${blueskyProfile.handle.replace('.bsky.social', '')}` : 'Bluesky'}
+              {profile?.handle ? `@${profile.handle}` : config.name}
             </span>
           </div>
 
@@ -138,7 +139,7 @@ export function IdentityStatus() {
       ) : (
         <div className="text-center px-3 pb-4">
           <p className="text-[11px] text-[var(--color-text-tertiary)] leading-relaxed">
-            Your inbox is cryptographically linked to your Bluesky identity. Secured by XMTP.{' '}
+            Your inbox is cryptographically linked to your {config.name} identity. Secured by XMTP.{' '}
             <a
               href="https://xmtp.org"
               target="_blank"
