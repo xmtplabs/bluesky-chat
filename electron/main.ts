@@ -403,7 +403,7 @@ app.whenReady().then(() => {
   // Set dock icon on macOS
   if (process.platform === 'darwin') {
     const icon = nativeImage.createFromPath(iconPath)
-    app.dock.setIcon(icon)
+    app.dock?.setIcon(icon)
   }
 
   app.on('browser-window-created', (_, window) => {
@@ -536,7 +536,7 @@ function setupIpcHandlers(): void {
   // Badge count
   ipcMain.on('set-badge-count', (_, count: number) => {
     if (process.platform === 'darwin') {
-      app.dock.setBadge(count > 0 ? String(count) : '')
+      app.dock?.setBadge(count > 0 ? String(count) : '')
     }
   })
 }

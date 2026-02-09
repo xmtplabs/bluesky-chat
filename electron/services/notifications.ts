@@ -37,7 +37,7 @@ export class NotificationService {
 
   setBadgeCount(count: number): void {
     if (process.platform === 'darwin') {
-      app.dock.setBadge(count > 0 ? String(count) : '')
+      app.dock?.setBadge(count > 0 ? String(count) : '')
     }
   }
 }
