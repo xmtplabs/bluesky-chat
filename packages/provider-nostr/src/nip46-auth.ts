@@ -276,11 +276,16 @@ export async function restoreNip46Session(): Promise<string | null> {
     const session: Nip46Session = JSON.parse(raw)
     const clientSecretKey = hexToBytes(session.clientSecretKeyHex)
 
+    if (activeBunkerSigner) {
+      await activeBunkerSigner.close().catch(() => {})
+      activeBunkerSigner = null
+    }
+
     const signer = BunkerSigner.fromBunker(clientSecretKey, {
       pubkey: session.bunkerPubkey,
       relays: session.relays,
       secret: null,
-    })
+    }, { pool: getOrCreatePool() })
 
     let hexPubkey: string | null = null
     try {
