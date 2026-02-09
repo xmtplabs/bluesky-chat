@@ -86,10 +86,6 @@ export function startNip46Connect(
 
   console.log('[NIP-46] Connect URI created, relays:', NIP46_RELAYS)
 
-  generateQrDataUrl(uri).then(onQrDataUrl).catch((err) => {
-    console.error('[NIP-46] Failed to generate QR data URL:', err)
-  })
-
   let aborted = false
   let discoveredPubkey: string | null = null
   let rejectPromise: ((reason: Error) => void) | null = null
@@ -100,6 +96,12 @@ export function startNip46Connect(
 
   const promise = new Promise<string>((resolve, reject) => {
     rejectPromise = reject
+
+    generateQrDataUrl(uri).then(onQrDataUrl).catch((err) => {
+      console.error('[NIP-46] Failed to generate QR data URL:', err)
+      reject(new Error('Failed to generate QR code'))
+    })
+
     // Single subscription handles both ACK and subsequent RPC responses.
     // We never close it until pubkey is discovered or we give up.
     const sub = pool.subscribe(
