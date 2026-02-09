@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useIdentity } from '../../hooks/useIdentity'
 import type { UserProfile } from '../../types'
+import { formatHandle } from '../../provider'
 import { Avatar } from '../shared/Avatar'
 
 interface FollowerListProps {
@@ -74,7 +75,7 @@ export function FollowerList({ type, onSelectUser }: FollowerListProps) {
             <p className="font-medium text-black truncate">
               {user.displayName || user.handle}
             </p>
-            <p className="text-sm text-gray-500 truncate">@{user.handle}</p>
+            <p className="text-sm text-gray-500 truncate">{formatHandle(user.handle)}</p>
             {user.description && (
               <p className="text-xs text-gray-400 truncate mt-1">{user.description}</p>
             )}

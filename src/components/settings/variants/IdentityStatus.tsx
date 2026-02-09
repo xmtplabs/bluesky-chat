@@ -1,5 +1,5 @@
 import { useSettings } from '../context/SettingsContext'
-import { config } from '../../../provider'
+import { config, formatHandle } from '../../../provider'
 
 /**
  * Displays the identity <-> inbox link visualization and status.
@@ -26,7 +26,7 @@ export function IdentityStatus() {
               </svg>
             </div>
             <span className="text-[10px] font-medium text-[var(--color-text-secondary)] mt-1.5 text-center truncate max-w-full">
-              {profile?.handle ? `@${profile.handle}` : config.name}
+              {profile?.handle ? formatHandle(profile.handle) : config.name}
             </span>
           </div>
 

@@ -69,6 +69,8 @@ export interface ProviderConfig {
   supportsFollowing: boolean
   supportsProfileUpdate: boolean
   supportsBlobUpload: boolean
+  formatHandle: (handle: string) => string    // Display-formatted handle (e.g. "@alice" for Bluesky, "alice@relay.com" as-is for Nostr)
+  profileUrl?: (handle: string) => string     // External profile link (optional — omit if no canonical web profile)
   passwordHelp?: {
     placeholder: string    // "xxxx-xxxx-xxxx-xxxx"
     url: string            // "https://bsky.app/settings/app-passwords"

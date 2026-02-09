@@ -1,5 +1,6 @@
 import { useIdentity } from '../../hooks/useIdentity'
 import { useAuthStore } from '../../stores/authStore'
+import { formatHandle } from '../../provider'
 import { Avatar } from '../shared/Avatar'
 
 export function IdentityProfile() {
@@ -21,7 +22,7 @@ export function IdentityProfile() {
           <h2 className="text-xl font-bold text-gray-900">
             {profile.displayName || profile.handle}
           </h2>
-          <p className="text-gray-500">@{profile.handle}</p>
+          <p className="text-gray-500">{formatHandle(profile.handle)}</p>
         </div>
       </div>
 

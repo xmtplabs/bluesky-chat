@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useGroupAdmin } from '../context/GroupAdminContext'
 import { useIdentity } from '../../../../hooks/useIdentity'
-import { config } from '../../../../provider'
+import { config, formatHandle } from '../../../../provider'
 import { Avatar } from '../../../shared/Avatar'
 
 export function AddMemberSearch() {
@@ -190,7 +190,7 @@ export function AddMemberSearch() {
                         {user.displayName || user.handle}
                       </p>
                       <p className="text-[13px] text-[var(--color-text-secondary)] truncate">
-                        @{user.handle}
+                        {formatHandle(user.handle)}
                       </p>
                     </div>
                     {isChecking ? (

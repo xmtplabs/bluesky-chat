@@ -4,6 +4,7 @@ import { useXMTP } from '../../hooks/useXMTP'
 import { resolveUsersToInboxIds } from '../../utils/resolveUsers'
 import { getErrorMessage } from '../../utils/errors'
 import type { UserProfile } from '../../types'
+import { formatHandle } from '../../provider'
 import { Avatar } from '../shared/Avatar'
 
 interface CreateGroupProps {
@@ -244,7 +245,7 @@ export function CreateGroup({ onClose }: CreateGroupProps) {
                           {user.displayName || user.handle}
                         </p>
                         <p className="text-[13px] text-[var(--color-text-secondary)] truncate">
-                          @{user.handle}
+                          {formatHandle(user.handle)}
                         </p>
                       </div>
                       <div
