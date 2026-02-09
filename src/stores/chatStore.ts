@@ -19,13 +19,13 @@ const messageInsertionQueues = new Map<string, Promise<void>>()
 let loadConversationsToken: symbol | null = null
 
 /**
- * Look up a sender's BlueskyProfile from the identity cache.
+ * Look up a sender's profile from the identity cache.
  * Returns undefined if the inbox ID hasn't been resolved yet.
  */
-function getSenderProfile(senderInboxId: string): BlueskyProfile | undefined {
-  const did = identityService.getDidFromInboxId(senderInboxId)
-  if (did) {
-    return identityService.getCachedProfile(did) || undefined
+function getSenderProfile(senderInboxId: string): UserProfile | undefined {
+  const id = identityService.getIdFromInboxId(senderInboxId)
+  if (id) {
+    return identityService.getCachedProfile(id) || undefined
   }
   return undefined
 }
@@ -35,11 +35,9 @@ function getSenderProfile(senderInboxId: string): BlueskyProfile | undefined {
  * Tries to resolve from identity cache, falls back to truncated ID.
  */
 function getSenderName(senderInboxId: string): string {
-  // Try to get the DID from identity service
-  const did = identityService.getIdFromInboxId(senderInboxId)
-  if (did) {
-    // Try to get cached profile
-    const profile = identityService.getCachedProfile(did)
+  const id = identityService.getIdFromInboxId(senderInboxId)
+  if (id) {
+    const profile = identityService.getCachedProfile(id)
     if (profile) {
       return profile.displayName || profile.handle
     }
@@ -106,35 +104,35 @@ function extractInboxIdsFromGroupUpdate(content: unknown): string[] {
 }
 
 /**
- * Resolve inbox IDs to DIDs and cache their profiles.
+ * Resolve inbox IDs to identity IDs and cache their profiles.
  * After this completes, getSenderName() will return display names for these IDs.
  */
 async function ensureInboxIdsResolved(inboxIds: string[]): Promise<void> {
-  // Bulk resolve any unresolved inbox→DID mappings
+  // Bulk resolve any unresolved inbox → identity ID mappings
   const unresolved = inboxIds.filter((id) => !identityService.getIdFromInboxId(id))
   const resolved = unresolved.length > 0
     ? await identityService.bulkResolveInboxToId(unresolved)
     : new Map<string, string>()
 
-  // Collect DIDs that need profile fetching
-  const didsToFetch: string[] = []
+  // Collect identity IDs that need profile fetching
+  const idsToFetch: string[] = []
   for (const inboxId of inboxIds) {
-    const did = resolved.get(inboxId) || identityService.getIdFromInboxId(inboxId)
-    if (did && !identityService.getCachedProfile(did)) {
-      didsToFetch.push(did)
+    const id = resolved.get(inboxId) || identityService.getIdFromInboxId(inboxId)
+    if (id && !identityService.getCachedProfile(id)) {
+      idsToFetch.push(id)
     }
   }
 
   // Fetch profiles in batches to avoid rate limiting
   const BATCH_SIZE = 10
-  for (let i = 0; i < didsToFetch.length; i += BATCH_SIZE) {
-    const batch = didsToFetch.slice(i, i + BATCH_SIZE)
+  for (let i = 0; i < idsToFetch.length; i += BATCH_SIZE) {
+    const batch = idsToFetch.slice(i, i + BATCH_SIZE)
     await Promise.allSettled(
-      batch.map((did) =>
-        provider.getProfile(did).then((profile) => {
+      batch.map((id) =>
+        provider.getProfile(id).then((profile) => {
           if (profile) identityService.cacheProfile(profile)
         }).catch(() => {
-          console.debug('Profile fetch failed for DID:', did)
+          console.debug('Profile fetch failed for identity:', id)
         })
       )
     )
@@ -342,20 +340,20 @@ function addStreamedMessage(
   }
 }
 
-// Get last known conversation count for a DID (used to skip skeleton loading for known-empty inboxes)
-export const getLastKnownConversationCount = (did: string): number | null => {
+// Get last known conversation count for an identity (used to skip skeleton loading for known-empty inboxes)
+export const getLastKnownConversationCount = (identityId: string): number | null => {
   try {
-    const stored = localStorage.getItem(`xmtp_conversation_count_${did}`)
+    const stored = localStorage.getItem(`xmtp_conversation_count_${identityId}`)
     return stored !== null ? parseInt(stored, 10) : null
   } catch {
     return null
   }
 }
 
-// Save conversation count for a DID
-const saveConversationCount = (did: string, count: number) => {
+// Save conversation count for an identity
+const saveConversationCount = (identityId: string, count: number) => {
   try {
-    localStorage.setItem(`xmtp_conversation_count_${did}`, String(count))
+    localStorage.setItem(`xmtp_conversation_count_${identityId}`, String(count))
   } catch (error) {
     console.error('Failed to save conversation count:', error)
   }
@@ -460,8 +458,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (followingDids.size > 0) {
         for (const d of activeConvDatas) {
           if (d.consentState !== ConsentState.Unknown || d.isGroup) continue
-          const peerDid = d.peerInboxId ? identityService.getIdFromInboxId(d.peerInboxId) : undefined
-          if (peerDid && followingDids.has(peerDid)) {
+          const peerId = d.peerInboxId ? identityService.getIdFromInboxId(d.peerInboxId) : undefined
+          if (peerId && followingDids.has(peerId)) {
             xmtpService.setConsentState(d.conv.id, ConsentState.Allowed).catch(() => {})
             d.consentState = ConsentState.Allowed
           }
@@ -473,9 +471,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         let peerProfile: UserProfile | undefined
 
         if (!convIsGroup && peerInboxId) {
-          const peerDid = identityService.getIdFromInboxId(peerInboxId)
-          if (peerDid) {
-            peerProfile = identityService.getCachedProfile(peerDid) || undefined
+          const peerId = identityService.getIdFromInboxId(peerInboxId)
+          if (peerId) {
+            peerProfile = identityService.getCachedProfile(peerId) || undefined
           }
         }
 
@@ -516,9 +514,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set({ conversations: chatConversations })
 
       // Persist conversation count for this user (used to skip skeleton loading on next launch)
-      const did = useAuthStore.getState().profile?.id
-      if (did) {
-        saveConversationCount(did, chatConversations.length)
+      const identityId = useAuthStore.getState().profile?.id
+      if (identityId) {
+        saveConversationCount(identityId, chatConversations.length)
       }
     } catch (error) {
       console.error('Failed to load conversations:', error)

@@ -29,7 +29,6 @@ vi.mock('../services/xmtp', () => ({
 
 vi.mock('../services/identity', () => ({
   identityService: {
-    getAddressFromDid: vi.fn(),
     getIdFromInboxId: vi.fn().mockReturnValue(undefined),
     getCachedProfile: vi.fn().mockReturnValue(undefined),
     cacheProfile: vi.fn(),

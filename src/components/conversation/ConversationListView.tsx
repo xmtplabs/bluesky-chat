@@ -27,9 +27,9 @@ function ConversationListLoading() {
  * Check if user is known to have zero conversations based on their last session.
  */
 function useIsKnownEmpty(): boolean {
-  const did = useAuthStore((s) => s.profile?.id)
-  if (!did) return false
-  return getLastKnownConversationCount(did) === 0
+  const identityId = useAuthStore((s) => s.profile?.id)
+  if (!identityId) return false
+  return getLastKnownConversationCount(identityId) === 0
 }
 
 /**
