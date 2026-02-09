@@ -374,17 +374,16 @@ export class NostrService {
     if (!this.hexPubkey) throw new Error('Not logged in')
 
     const existing = await this.fetchKind0(this.hexPubkey)
+    if (!existing) return
 
-    let metadata: Record<string, unknown> = {}
-    if (existing) {
-      try {
-        metadata = JSON.parse(existing.content)
-      } catch {
-        // nothing to delete
-        return
-      }
+    let metadata: Record<string, unknown>
+    try {
+      metadata = JSON.parse(existing.content)
+    } catch {
+      return
     }
 
+    if (!metadata.xmtp) return
     delete metadata.xmtp
 
     const eventTemplate = {

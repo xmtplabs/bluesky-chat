@@ -127,6 +127,8 @@ export function startNip46Connect(
 
           // ── Connect ACK ──
           if (parsed.result === secret) {
+            // Ignore duplicate ACKs (relay replay, etc.)
+            if (activeTimeout) return
             const bunkerPubkey = event.pubkey
             console.log('[NIP-46] Connect ACK received, bunker:', bunkerPubkey.slice(0, 12))
             onConnected?.()
@@ -254,7 +256,10 @@ export async function loginWithExtension(): Promise<string> {
     throw new Error('No Nostr browser extension found. Install Alby, nos2x, or similar.')
   }
   const hexPubkey = await window.nostr.getPublicKey()
-  activeBunkerSigner = null
+  if (activeBunkerSigner) {
+    await activeBunkerSigner.close().catch(() => {})
+    activeBunkerSigner = null
+  }
   return hexPubkey
 }
 
