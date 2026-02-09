@@ -94,14 +94,16 @@ export function NotificationSettings() {
           >
             Learn about XMTP
           </a>
-          <a
-            href="https://bsky.app"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-500 hover:underline"
-          >
-            {config.name}
-          </a>
+          {config.profileUrl && (
+            <a
+              href={config.profileUrl('')}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-500 hover:underline"
+            >
+              {config.name}
+            </a>
+          )}
         </div>
       </div>
     </div>

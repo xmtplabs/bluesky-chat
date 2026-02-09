@@ -15,7 +15,28 @@ vi.mock('../provider', () => ({
     getProfile: vi.fn().mockResolvedValue(null),
     getProfiles: vi.fn().mockResolvedValue(new Map()),
     searchUsers: vi.fn().mockResolvedValue([]),
-  }
+  },
+  config: {
+    name: 'Bluesky',
+    loginPlaceholder: 'username',
+    loginSuffix: '.bsky.social',
+    loginMethods: ['oauth', 'password'],
+    mappingServiceUrl: 'https://bluesky-chat-mapping-service.xmtp.workers.dev',
+    supportsFollowers: true,
+    supportsFollowing: true,
+    supportsProfileUpdate: true,
+    supportsBlobUpload: true,
+    formatHandle: (handle: string) => `@${handle}`,
+    profileUrl: (handle: string) => `https://bsky.app/profile/${handle}`,
+    passwordHelp: {
+      placeholder: 'xxxx-xxxx-xxxx-xxxx',
+      url: 'https://bsky.app/settings/app-passwords',
+      label: 'Create an app password at',
+      linkText: 'bsky.app/settings/app-passwords',
+    },
+  },
+  formatHandle: (handle: string) => `@${handle}`,
+  nip46: null,
 }))
 
 vi.mock('../services/xmtp', () => ({
