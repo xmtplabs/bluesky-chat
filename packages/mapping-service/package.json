@@ -5,15 +5,20 @@
   "description": "DID↔InboxId mapping backend service for bluesky-chat",
   "scripts": {
     "dev": "wrangler dev",
+    "dev:nostr": "wrangler dev --env nostr",
     "deploy": "wrangler deploy",
+    "deploy:nostr": "wrangler deploy --env nostr",
     "db:create": "wrangler d1 create bluesky-chat-mappings",
+    "db:create:nostr": "wrangler d1 create nostr-chat-mappings",
     "db:migrate": "wrangler d1 execute bluesky-chat-mappings --file=./schema.sql",
+    "db:migrate:nostr": "wrangler d1 execute nostr-chat-mappings --env nostr --file=./schema.sql",
     "db:migrate:local": "wrangler d1 execute bluesky-chat-mappings --local --file=./schema.sql",
     "backfill": "tsx scripts/backfill.ts",
     "test": "vitest",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@scure/base": "^2.0.0",
     "hono": "^4.7.0"
   },
   "devDependencies": {

@@ -238,12 +238,12 @@ export class BlueskyIndexer implements DurableObject, Indexer {
     if (event.kind !== 'commit' || !event.commit) return
     if (event.commit.collection !== COLLECTION) return
 
-    const { did } = event
+    const identityId = event.did
     const { operation, record } = event.commit
 
     if (operation === 'delete') {
-      console.log(`[Jetstream] Deleting mapping for ${did}`)
-      await deleteMapping(this.env.DB, did)
+      console.log(`[Jetstream] Deleting mapping for ${identityId}`)
+      await deleteMapping(this.env.DB, identityId)
       // Save cursor AFTER successful DB operation
       if (event.time_us) {
         this.scheduleCursorSave(event.time_us)
@@ -257,7 +257,7 @@ export class BlueskyIndexer implements DurableObject, Indexer {
 
       if (!inboxId || !signature) {
         console.warn(
-          `[Jetstream] Invalid record for ${did}: missing id or signature`
+          `[Jetstream] Invalid record for ${identityId}: missing id or signature`
         )
         return
       }
@@ -265,24 +265,24 @@ export class BlueskyIndexer implements DurableObject, Indexer {
       // Verify the signature (format validation)
       const verifyResult = await verifyInboxOwnership(
         inboxId,
-        did,
+        identityId,
         signature,
         'production'
       )
 
       if (!verifyResult.verified) {
         console.warn(
-          `[Jetstream] Verification failed for ${did}: ${verifyResult.error}`
+          `[Jetstream] Verification failed for ${identityId}: ${verifyResult.error}`
         )
         return
       }
 
       console.log(
-        `[Jetstream] Indexing mapping: ${did} -> ${inboxId.slice(0, 16)}...`
+        `[Jetstream] Indexing mapping: ${identityId} -> ${inboxId.slice(0, 16)}...`
       )
 
       await upsertMapping(this.env.DB, {
-        did,
+        identityId,
         inboxId,
         signature
       })

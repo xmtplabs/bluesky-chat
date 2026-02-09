@@ -1,29 +1,31 @@
 import { Hono } from 'hono'
 import type { Env, LookupResponse } from '../types'
-import { getMappingByDid, getMappingByInboxId } from '../services/db'
+import { getMappingByIdentityId, getMappingByInboxId } from '../services/db'
+import { getIdentityProvider } from '../services/identity'
 
 const lookup = new Hono<{ Bindings: Env }>()
 
 /**
- * GET /v1/lookup/did/:did
- * Forward lookup: DID → InboxId
+ * GET /v1/lookup/id/:id
+ * Forward lookup: identity → InboxId
  */
-lookup.get('/did/:did', async (c) => {
-  const did = c.req.param('did')
+lookup.get('/id/:id', async (c) => {
+  const id = c.req.param('id')
 
-  // Validate DID format
-  if (!did.startsWith('did:plc:') && !did.startsWith('did:web:')) {
-    return c.json({ error: 'Invalid DID format' }, 400)
+  // Validate identity format
+  const identityProvider = getIdentityProvider(c.env)
+  if (!identityProvider.isValidIdentity(id)) {
+    return c.json({ error: 'Invalid identity format' }, 400)
   }
 
-  const mapping = await getMappingByDid(c.env.DB, did)
+  const mapping = await getMappingByIdentityId(c.env.DB, id)
 
   if (!mapping) {
-    return c.json({ error: 'NOT_FOUND', did }, 404)
+    return c.json({ error: 'NOT_FOUND', id }, 404)
   }
 
   const response: LookupResponse = {
-    did: mapping.did,
+    id: mapping.identityId,
     inboxId: mapping.inboxId
   }
 
@@ -32,7 +34,7 @@ lookup.get('/did/:did', async (c) => {
 
 /**
  * GET /v1/lookup/inbox/:inboxId
- * Reverse lookup: InboxId → DID
+ * Reverse lookup: InboxId → identity
  */
 lookup.get('/inbox/:inboxId', async (c) => {
   const inboxId = c.req.param('inboxId')
@@ -49,7 +51,7 @@ lookup.get('/inbox/:inboxId', async (c) => {
   }
 
   const response: LookupResponse = {
-    did: mapping.did,
+    id: mapping.identityId,
     inboxId: mapping.inboxId
   }
 

@@ -96,9 +96,10 @@ export const config: ProviderConfig = {
   loginPlaceholder: 'npub1…',
   loginSuffix: undefined,
   loginMethods: ['nip46-qr'],
-  mappingServiceUrl: '',
+  mappingServiceUrl: 'https://nostr-chat-mapping-service.xmtp.workers.dev',
   supportsFollowers: false,    // Requires relay indexing
   supportsFollowing: true,     // Kind 3 contacts list
   supportsProfileUpdate: false, // Could be added later
   supportsBlobUpload: false,   // No native blob storage
+  formatHandle: (handle) => handle,  // NIP-05 and npub display as-is
 }

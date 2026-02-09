@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
-  getMappingByDid,
+  getMappingByIdentityId,
   getMappingByInboxId,
-  getMappingsByDids,
+  getMappingsByIdentityIds,
   getMappingsByInboxIds,
   upsertMapping,
   deleteMapping,
@@ -31,20 +31,20 @@ function createMockDb() {
 }
 
 describe('db service', () => {
-  describe('getMappingByDid', () => {
+  describe('getMappingByIdentityId', () => {
     it('returns mapping when found', async () => {
       const mockDb = createMockDb()
       mockDb._mocks.mockFirst.mockResolvedValue({
-        did: 'did:plc:test123',
+        identity_id: 'did:plc:test123',
         inbox_id: '0xabcdef',
         signature: 'base64sig',
         created_at: 1700000000000
       })
 
-      const result = await getMappingByDid(mockDb as any, 'did:plc:test123')
+      const result = await getMappingByIdentityId(mockDb as any, 'did:plc:test123')
 
       expect(result).toEqual({
-        did: 'did:plc:test123',
+        identityId: 'did:plc:test123',
         inboxId: '0xabcdef',
         signature: 'base64sig',
         createdAt: 1700000000000
@@ -55,7 +55,7 @@ describe('db service', () => {
       const mockDb = createMockDb()
       mockDb._mocks.mockFirst.mockResolvedValue(null)
 
-      const result = await getMappingByDid(mockDb as any, 'did:plc:notfound')
+      const result = await getMappingByIdentityId(mockDb as any, 'did:plc:notfound')
 
       expect(result).toBeNull()
     })
@@ -65,7 +65,7 @@ describe('db service', () => {
     it('returns mapping when found', async () => {
       const mockDb = createMockDb()
       mockDb._mocks.mockFirst.mockResolvedValue({
-        did: 'did:plc:test123',
+        identity_id: 'did:plc:test123',
         inbox_id: '0xabcdef',
         signature: 'base64sig',
         created_at: 1700000000000
@@ -74,7 +74,7 @@ describe('db service', () => {
       const result = await getMappingByInboxId(mockDb as any, '0xabcdef')
 
       expect(result).toEqual({
-        did: 'did:plc:test123',
+        identityId: 'did:plc:test123',
         inboxId: '0xabcdef',
         signature: 'base64sig',
         createdAt: 1700000000000
@@ -82,28 +82,28 @@ describe('db service', () => {
     })
   })
 
-  describe('getMappingsByDids', () => {
+  describe('getMappingsByIdentityIds', () => {
     it('returns empty array for empty input', async () => {
       const mockDb = createMockDb()
 
-      const result = await getMappingsByDids(mockDb as any, [])
+      const result = await getMappingsByIdentityIds(mockDb as any, [])
 
       expect(result).toEqual([])
       expect(mockDb.prepare).not.toHaveBeenCalled()
     })
 
-    it('returns mappings for valid DIDs', async () => {
+    it('returns mappings for valid identity IDs', async () => {
       const mockDb = createMockDb()
       mockDb._mocks.mockAll.mockResolvedValue({
         results: [
           {
-            did: 'did:plc:a',
+            identity_id: 'did:plc:a',
             inbox_id: '0x111',
             signature: 'sig1',
             created_at: 1700000000000
           },
           {
-            did: 'did:plc:b',
+            identity_id: 'did:plc:b',
             inbox_id: '0x222',
             signature: 'sig2',
             created_at: 1700000000000
@@ -111,11 +111,11 @@ describe('db service', () => {
         ]
       })
 
-      const result = await getMappingsByDids(mockDb as any, ['did:plc:a', 'did:plc:b'])
+      const result = await getMappingsByIdentityIds(mockDb as any, ['did:plc:a', 'did:plc:b'])
 
       expect(result).toHaveLength(2)
-      expect(result[0].did).toBe('did:plc:a')
-      expect(result[1].did).toBe('did:plc:b')
+      expect(result[0].identityId).toBe('did:plc:a')
+      expect(result[1].identityId).toBe('did:plc:b')
     })
   })
 

@@ -143,7 +143,7 @@ describe('MappingBackendClient - retry queue', () => {
       (call) => typeof call[0] === 'string' && call[0].includes('/v1/register')
     )
     expect(registerCalls).toHaveLength(1)
-    expect(registerCalls[0][1]?.body).toBe(JSON.stringify({ did: 'did:plc:valid' }))
+    expect(registerCalls[0][1]?.body).toBe(JSON.stringify({ id: 'did:plc:valid' }))
   })
 
   it('should skip retry loop when circuit breaker is open', async () => {

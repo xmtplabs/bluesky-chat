@@ -11,10 +11,10 @@
 
 import { config } from '../provider'
 
-// Backend URL - env var > provider config > hardcoded fallback
+// Backend URL - env var > provider config. Empty = disabled (e.g. Nostr uses kind 0 directly).
 const BACKEND_URL = import.meta.env.VITE_MAPPING_BACKEND_URL
   || config.mappingServiceUrl
-  || 'https://bluesky-chat-mapping-service.xmtp.workers.dev'
+  || ''
 
 // Circuit breaker configuration
 const CIRCUIT_BREAKER_THRESHOLD = 5 // Open after 5 consecutive failures
@@ -190,7 +190,7 @@ class MappingBackendClient {
     }
 
     // Create new request
-    const request = this.doBulkLookup('by-did', dids)
+    const request = this.doBulkLookup('by-id', dids)
     this.pendingBulkRequests.set(cacheKey, request)
 
     try {
@@ -235,6 +235,8 @@ class MappingBackendClient {
    * Failed registrations are persisted and retried automatically.
    */
   async registerMapping(params: RegisterRequest): Promise<boolean> {
+    if (!BACKEND_URL) return true // No backend configured — nothing to register
+
     const success = await this.doRegister(params)
     if (success) {
       if (this.pendingRegistrations.delete(params.id)) {
@@ -256,7 +258,7 @@ class MappingBackendClient {
       const response = await this.fetchWithRetry(`${BACKEND_URL}/v1/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ did: params.id })
+        body: JSON.stringify({ id: params.id })
       })
 
       if (response.ok) {
@@ -305,13 +307,13 @@ class MappingBackendClient {
 
     try {
       const response = await this.fetchWithRetry(
-        `${BACKEND_URL}/v1/lookup/did/${encodeURIComponent(did)}`
+        `${BACKEND_URL}/v1/lookup/id/${encodeURIComponent(did)}`
       )
 
       if (response.ok) {
         this.recordSuccess()
-        const data = await response.json() as { did: string; inboxId: string }
-        return { id: data.did, inboxId: data.inboxId }
+        const data = await response.json() as { id: string; inboxId: string }
+        return { id: data.id, inboxId: data.inboxId }
       }
 
       if (response.status === 404) {
@@ -340,8 +342,8 @@ class MappingBackendClient {
 
       if (response.ok) {
         this.recordSuccess()
-        const data = await response.json() as { did: string; inboxId: string }
-        return { id: data.did, inboxId: data.inboxId }
+        const data = await response.json() as { id: string; inboxId: string }
+        return { id: data.id, inboxId: data.inboxId }
       }
 
       if (response.status === 404) {
@@ -359,7 +361,7 @@ class MappingBackendClient {
   }
 
   private async doBulkLookup(
-    type: 'by-did' | 'by-inbox',
+    type: 'by-id' | 'by-inbox',
     identifiers: string[]
   ): Promise<BulkResponse> {
     if (!this.canMakeRequest()) {
@@ -375,9 +377,9 @@ class MappingBackendClient {
 
       if (response.ok) {
         this.recordSuccess()
-        const data = await response.json() as { mappings: { did: string; inboxId: string }[]; notFound: string[] }
+        const data = await response.json() as { mappings: { id: string; inboxId: string }[]; notFound: string[] }
         return {
-          mappings: data.mappings.map((m) => ({ id: m.did, inboxId: m.inboxId })),
+          mappings: data.mappings.map((m) => ({ id: m.id, inboxId: m.inboxId })),
           notFound: data.notFound
         }
       }
@@ -435,6 +437,8 @@ class MappingBackendClient {
   }
 
   private canMakeRequest(): boolean {
+    if (!BACKEND_URL) return false
+
     this.checkCircuitState()
 
     if (this.circuitState === 'open') {
