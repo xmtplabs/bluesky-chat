@@ -227,6 +227,10 @@ Click "Login with Bluesky" to authenticate via OAuth. The app opens a window for
 
 Alternatively, create an [App Password](https://bsky.app/settings/app-passwords) and log in with your handle and app password.
 
+## Supported PDS
+
+Currently only `bsky.social` is supported as a PDS (Personal Data Server). PRs are welcome to add support for other federated AT Protocol instances.
+
 ## Troubleshooting
 
 ### "Identity mismatch" warning
