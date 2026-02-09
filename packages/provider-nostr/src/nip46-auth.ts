@@ -94,6 +94,7 @@ export function startNip46Connect(
   let discoveredPubkey: string | null = null
   let rejectPromise: ((reason: Error) => void) | null = null
   let activeSub: ReturnType<SimplePool['subscribe']> | null = null
+  let activeSigner: BunkerSigner | null = null
   let activeCheck: ReturnType<typeof setInterval> | null = null
   let activeTimeout: ReturnType<typeof setTimeout> | null = null
 
@@ -139,6 +140,7 @@ export function startNip46Connect(
               relays: NIP46_RELAYS,
               secret,
             }, { pool })
+            activeSigner = signer
 
             // Fire manual get_public_key RPC via our own subscription too.
             // This way both our sub AND the signer's internal sub can catch the response.
@@ -234,6 +236,7 @@ export function startNip46Connect(
       if (activeCheck) clearInterval(activeCheck)
       if (activeTimeout) clearTimeout(activeTimeout)
       activeSub?.close()
+      activeSigner?.close().catch(() => {})
       rejectPromise?.(new Error('NIP-46 connect aborted'))
     },
   }
