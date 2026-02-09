@@ -71,7 +71,7 @@ admin.post('/backfill', async (c) => {
     return c.json({ error: 'Invalid JSON body' }, 400)
   }
 
-  if (!Array.isArray(body.ids) || body.ids.length === 0) {
+  if (!body || !Array.isArray(body.ids) || body.ids.length === 0) {
     return c.json({ error: 'ids must be a non-empty array' }, 400)
   }
 

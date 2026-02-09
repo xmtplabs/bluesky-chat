@@ -92,8 +92,13 @@ export function startNip46Connect(
 
   let aborted = false
   let discoveredPubkey: string | null = null
+  let rejectPromise: ((reason: Error) => void) | null = null
+  let activeSub: ReturnType<SimplePool['subscribe']> | null = null
+  let activeCheck: ReturnType<typeof setInterval> | null = null
+  let activeTimeout: ReturnType<typeof setTimeout> | null = null
 
   const promise = new Promise<string>((resolve, reject) => {
+    rejectPromise = reject
     // Single subscription handles both ACK and subsequent RPC responses.
     // We never close it until pubkey is discovered or we give up.
     const sub = pool.subscribe(
@@ -163,6 +168,7 @@ export function startNip46Connect(
             // Wait for pubkey discovery with timeout
             const timeout = setTimeout(() => {
               if (!discoveredPubkey) {
+                clearInterval(check)
                 console.warn('[NIP-46] Pubkey discovery timed out after', PUBKEY_TIMEOUT, 'ms')
                 const hexPubkey = bunkerPubkey
                 console.log('[NIP-46] Using bunker key fallback:', hexPubkey.slice(0, 12))
@@ -172,6 +178,7 @@ export function startNip46Connect(
                 resolve(hexPubkey)
               }
             }, PUBKEY_TIMEOUT)
+            activeTimeout = timeout
 
             // If pubkey was already discovered by a response handler below, resolve now
             const check = setInterval(() => {
@@ -187,6 +194,7 @@ export function startNip46Connect(
                 resolve(hexPubkey)
               }
             }, 100)
+            activeCheck = check
             return
           }
 
@@ -214,11 +222,18 @@ export function startNip46Connect(
         },
       },
     )
+    activeSub = sub
   })
 
   return {
     promise,
-    abort: () => { aborted = true },
+    abort: () => {
+      aborted = true
+      if (activeCheck) clearInterval(activeCheck)
+      if (activeTimeout) clearTimeout(activeTimeout)
+      activeSub?.close()
+      rejectPromise?.(new Error('NIP-46 connect aborted'))
+    },
   }
 }
 
