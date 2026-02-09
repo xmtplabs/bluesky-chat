@@ -5,6 +5,8 @@
 [![XMTP SDK v6](https://img.shields.io/badge/xmtp--sdk-v6-orange)](https://xmtp.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
+[**Download for macOS**](https://github.com/xmtplabs/bluesky-chat/releases/latest/download/Bluesky-Chat-arm64.dmg)
+
 An open source reference app from [XMTP Labs](https://xmtp.org) demonstrating how to build secure messaging for Bluesky users.
 
 This app publishes XMTP signatures to the `org.xmtp.inbox` AT Protocol record to cryptographically bind Bluesky handles to XMTP inboxes, enabling end-to-end encrypted DMs and group chats for the Bluesky network.
