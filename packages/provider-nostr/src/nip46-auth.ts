@@ -5,7 +5,8 @@ import { getConversationKey, decrypt, encrypt } from 'nostr-tools/nip44'
 import { toDataURL } from 'qrcode'
 
 const NIP46_SESSION_KEY = 'nostr_nip46_session'
-const NIP46_RELAY = 'wss://relay.nsec.app'
+const NIP46_RELAYS = ['wss://relay.primal.net']
+const PUBKEY_TIMEOUT = 8_000
 
 /** Hex-encode a Uint8Array */
 function bytesToHex(bytes: Uint8Array): string {
@@ -25,7 +26,7 @@ interface Nip46Session {
   clientSecretKeyHex: string
   bunkerPubkey: string
   relays: string[]
-  userPubkey?: string  // User's actual pubkey (differs from bunkerPubkey for services like Primal)
+  userPubkey?: string
 }
 
 // ── Active signer ────────────────────────────────────────
@@ -36,11 +37,17 @@ export function getActiveBunkerSigner(): BunkerSigner | null {
   return activeBunkerSigner
 }
 
+// ── Shared pool ──────────────────────────────────────────
+
+let sharedPool: SimplePool | null = null
+
+function getOrCreatePool(): SimplePool {
+  if (!sharedPool) sharedPool = new SimplePool()
+  return sharedPool
+}
+
 // ── NIP-46 QR Code Flow ──────────────────────────────────
 
-/**
- * Generate a QR code data URL from a nostrconnect:// URI.
- */
 export async function generateQrDataUrl(uri: string): Promise<string> {
   return toDataURL(uri, {
     width: 280,
@@ -52,260 +59,192 @@ export async function generateQrDataUrl(uri: string): Promise<string> {
 
 /**
  * Start a NIP-46 Nostr Connect flow.
- * Generates an ephemeral keypair, creates a nostrconnect:// URI,
- * and waits for a bunker app (Amber, Nostrudel, etc.) to connect.
  *
- * @param relays - Additional relays to use alongside the NIP-46 relay
- * @param onQrDataUrl - Called with the QR code image data URL for display
- * @returns Promise that resolves with hex pubkey on successful connection, plus an abort function
+ * We handle the connect handshake ourselves (not via fromURI) so we can
+ * call getPublicKey immediately — fromURI has a 1s switchRelays delay.
+ * We also keep our subscription open to catch responses from BOTH our
+ * manual RPC and BunkerSigner's internal RPC, for diagnostics.
  */
 export function startNip46Connect(
-  relays: string[],
+  _relays: string[],
   onQrDataUrl: (dataUrl: string) => void,
   onConnected?: () => void,
+  onPubkeyReady?: (hexPubkey: string) => void,
 ): { promise: Promise<string>; abort: () => void } {
   const clientSecretKey = generateSecretKey()
   const clientPubkey = getPublicKey(clientSecretKey)
-  const connectRelays = [NIP46_RELAY, ...relays.filter((r) => r !== NIP46_RELAY)]
   const secret = bytesToHex(generateSecretKey()).slice(0, 16)
+  const pool = getOrCreatePool()
 
   const uri = createNostrConnectURI({
     clientPubkey,
-    relays: connectRelays,
+    relays: NIP46_RELAYS,
     secret,
     perms: ['get_public_key', 'sign_event:0', 'sign_event:3'],
     name: 'Nostr Chat',
   })
 
-  console.log('[NIP-46] Connect URI created, relays:', connectRelays)
+  console.log('[NIP-46] Connect URI created, relays:', NIP46_RELAYS)
 
-  // Generate QR data URL and pass to callback (fire-and-forget)
-  generateQrDataUrl(uri).then((dataUrl) => {
-    onQrDataUrl(dataUrl)
-  }).catch((err) => {
+  generateQrDataUrl(uri).then(onQrDataUrl).catch((err) => {
     console.error('[NIP-46] Failed to generate QR data URL:', err)
   })
 
-  const abortController = new AbortController()
+  let aborted = false
+  let discoveredPubkey: string | null = null
 
-  // ── Race-the-background: send get_public_key the instant the connect ACK arrives ──
-  //
-  // Mobile signers (Primal) go to background after the user approves the connect.
-  // By the time fromURI() resolves and we send RPCs, the bunker is already silent.
-  //
-  // Fix: set up our own subscription BEFORE fromURI(). When we see the connect ACK,
-  // we immediately fire a get_public_key RPC while the signer is still in the foreground.
-  // We also retry every 3s in case the mobile signer wakes up later.
-  let discoveredUserPubkey: string | null = null
-  let retryInterval: ReturnType<typeof setInterval> | null = null
-  const earlyPool = new SimplePool()
+  const promise = new Promise<string>((resolve, reject) => {
+    // Single subscription handles both ACK and subsequent RPC responses.
+    // We never close it until pubkey is discovered or we give up.
+    const sub = pool.subscribe(
+      NIP46_RELAYS,
+      {
+        kinds: [24133],
+        '#p': [clientPubkey],
+        since: Math.floor(Date.now() / 1000) - 10,
+      },
+      {
+        onevent: async (event) => {
+          if (aborted) return
 
-  // Helper to send get_public_key RPC via our early pool
-  const rpcRequestId = Math.random().toString(36).slice(2, 10)
-  const fireGetPublicKeyRpc = (targetPubkey: string) => {
-    const request = JSON.stringify({ id: rpcRequestId, method: 'get_public_key', params: [] })
-    const ck = getConversationKey(clientSecretKey, targetPubkey)
-    const encrypted = encrypt(request, ck)
-    const rpcEvent = finalizeEvent({
-      kind: 24133,
-      created_at: Math.floor(Date.now() / 1000),
-      content: encrypted,
-      tags: [['p', targetPubkey]],
-    }, clientSecretKey)
-    earlyPool.publish(connectRelays, rpcEvent)
-  }
-
-  const earlySub = earlyPool.subscribe(
-    connectRelays,
-    {
-      kinds: [24133],
-      '#p': [clientPubkey],
-      since: Math.floor(Date.now() / 1000) - 10,
-    },
-    {
-      onevent: (event) => {
-        try {
-          const convKey = getConversationKey(clientSecretKey, event.pubkey)
-          const decrypted = decrypt(event.content, convKey)
-          const parsed = JSON.parse(decrypted)
-
-          // Is this the connect ACK? (result matches our secret)
-          if (parsed.result === secret) {
-            console.log('[NIP-46] Connect ACK from', event.pubkey.slice(0, 12),
-              '— response:', JSON.stringify(parsed))
-
-            // Fire get_public_key RPC immediately while the signer is still active
-            fireGetPublicKeyRpc(event.pubkey)
-
-            // Retry every 3s in case the signer wakes up later (mobile background)
-            const bunkerPk = event.pubkey
-            retryInterval = setInterval(() => {
-              if (discoveredUserPubkey) {
-                clearInterval(retryInterval!)
-                retryInterval = null
-                return
-              }
-              console.log('[NIP-46] Retrying get_public_key RPC...')
-              fireGetPublicKeyRpc(bunkerPk)
-            }, 3000)
+          let parsed: Record<string, unknown>
+          try {
+            const ck = getConversationKey(clientSecretKey, event.pubkey)
+            parsed = JSON.parse(decrypt(event.content, ck))
+          } catch {
+            console.log('[NIP-46] Received event from', event.pubkey.slice(0, 12),
+              '(could not decrypt)')
             return
           }
 
-          // Any response with a 64-char hex result = get_public_key response.
-          // We match broadly (not just our request ID) to also catch responses
-          // to BunkerSigner's own RPCs routed through different subscriptions.
-          if (!discoveredUserPubkey && parsed.result && typeof parsed.result === 'string'
-              && /^[0-9a-f]{64}$/.test(parsed.result)) {
-            console.log('[NIP-46] Pubkey discovered:', parsed.result,
-              'from:', event.pubkey.slice(0, 12))
-            discoveredUserPubkey = parsed.result
+          console.log('[NIP-46] Decrypted event from', event.pubkey.slice(0, 12),
+            ':', JSON.stringify(parsed).slice(0, 200))
+
+          // ── Connect ACK ──
+          if (parsed.result === secret) {
+            const bunkerPubkey = event.pubkey
+            console.log('[NIP-46] Connect ACK received, bunker:', bunkerPubkey.slice(0, 12))
+            onConnected?.()
+
+            // Create signer via fromBunker (synchronous, no relay switch delay)
+            const signer = BunkerSigner.fromBunker(clientSecretKey, {
+              pubkey: bunkerPubkey,
+              relays: NIP46_RELAYS,
+              secret,
+            }, { pool })
+
+            // Fire manual get_public_key RPC via our own subscription too.
+            // This way both our sub AND the signer's internal sub can catch the response.
+            const rpcId = Math.random().toString(36).slice(2, 10)
+            const rpcRequest = JSON.stringify({ id: rpcId, method: 'get_public_key', params: [] })
+            const ck = getConversationKey(clientSecretKey, bunkerPubkey)
+            const rpcEvent = finalizeEvent({
+              kind: 24133,
+              created_at: Math.floor(Date.now() / 1000),
+              content: encrypt(rpcRequest, ck),
+              tags: [['p', bunkerPubkey]],
+            }, clientSecretKey)
+            console.log('[NIP-46] Publishing manual get_public_key RPC (id:', rpcId, ')')
+            pool.publish(NIP46_RELAYS, rpcEvent)
+
+            // Also try via BunkerSigner's own getPublicKey
+            console.log('[NIP-46] Also calling signer.getPublicKey()...')
+            signer.getPublicKey()
+              .then((pk) => {
+                console.log('[NIP-46] signer.getPublicKey() resolved:', pk?.slice(0, 12))
+                if (!discoveredPubkey && pk && /^[0-9a-f]{64}$/.test(pk)) {
+                  discoveredPubkey = pk
+                }
+              })
+              .catch((err) => {
+                console.warn('[NIP-46] signer.getPublicKey() rejected:', err)
+              })
+
+            // Wait for pubkey discovery with timeout
+            const timeout = setTimeout(() => {
+              if (!discoveredPubkey) {
+                console.warn('[NIP-46] Pubkey discovery timed out after', PUBKEY_TIMEOUT, 'ms')
+                const hexPubkey = bunkerPubkey
+                console.log('[NIP-46] Using bunker key fallback:', hexPubkey.slice(0, 12))
+                sub.close()
+                persistSession(clientSecretKey, bunkerPubkey, null)
+                activeBunkerSigner = signer
+                resolve(hexPubkey)
+              }
+            }, PUBKEY_TIMEOUT)
+
+            // If pubkey was already discovered by a response handler below, resolve now
+            const check = setInterval(() => {
+              if (discoveredPubkey) {
+                clearInterval(check)
+                clearTimeout(timeout)
+                const hexPubkey = discoveredPubkey
+                console.log('[NIP-46] Pubkey discovered:', hexPubkey.slice(0, 12))
+                onPubkeyReady?.(hexPubkey)
+                sub.close()
+                persistSession(clientSecretKey, bunkerPubkey, hexPubkey)
+                activeBunkerSigner = signer
+                resolve(hexPubkey)
+              }
+            }, 100)
+            return
           }
-        } catch {
-          // Not for us or can't decrypt — ignore
-        }
+
+          // ── Any other RPC response (after ACK) ──
+          if (discoveredPubkey) return // Already found
+
+          // Method A: get_public_key response — 64-char hex
+          if (parsed.result && typeof parsed.result === 'string'
+              && /^[0-9a-f]{64}$/.test(parsed.result as string)) {
+            console.log('[NIP-46] Pubkey via get_public_key response:', (parsed.result as string).slice(0, 12))
+            discoveredPubkey = parsed.result as string
+            return
+          }
+
+          // Method B: sign_event response — JSON signed event with .pubkey
+          if (parsed.result && typeof parsed.result === 'string') {
+            try {
+              const signed = JSON.parse(parsed.result as string)
+              if (signed.pubkey && /^[0-9a-f]{64}$/.test(signed.pubkey)) {
+                console.log('[NIP-46] Pubkey via sign_event response:', signed.pubkey.slice(0, 12))
+                discoveredPubkey = signed.pubkey
+              }
+            } catch { /* not a signed event */ }
+          }
+        },
       },
-    },
-  )
-
-  const promise = (async () => {
-    const signer = await BunkerSigner.fromURI(
-      clientSecretKey,
-      uri,
-      {},
-      abortController.signal,
     )
-    const bunkerPubkey = signer.bp.pubkey
-    console.log('[NIP-46] Signer connected, bunker key:', bunkerPubkey.slice(0, 12))
-
-    // Notify UI that the signer approved the connection.
-    onConnected?.()
-
-    // ── Strategy 1: Early RPC (already in-flight from the connect ACK handler) ──
-    // Wait up to 5s — this is the fastest path for responsive signers.
-    // Includes one retry at 3s if the first attempt was missed.
-    if (!discoveredUserPubkey) {
-      await new Promise<void>((resolve) => {
-        const check = setInterval(() => {
-          if (discoveredUserPubkey) { clearInterval(check); resolve() }
-        }, 100)
-        setTimeout(() => { clearInterval(check); resolve() }, 5000)
-      })
-    }
-
-    // ── Strategy 2: Try BunkerSigner's own getPublicKey + signEvent in parallel ──
-    // The signer's subscription is now set up. Some bunkers need more time or only
-    // respond to standard BunkerSigner RPCs (not our hand-crafted early ones).
-    // signEvent is tried because the signed event's pubkey field = user's actual key.
-    if (!discoveredUserPubkey) {
-      console.log('[NIP-46] Early RPC timed out. Trying signer RPCs (10s)...')
-      const pk = await discoverPubkeyViaSigner(signer, 10_000)
-      if (pk) {
-        console.log('[NIP-46] Signer RPC returned user pubkey:', pk.slice(0, 12))
-        discoveredUserPubkey = pk
-      }
-    }
-
-    // Clean up early subscription and retry timer
-    if (retryInterval) { clearInterval(retryInterval); retryInterval = null }
-    earlySub.close()
-    try { earlyPool.close(connectRelays) } catch { /* ignore */ }
-
-    const hexPubkey = discoveredUserPubkey ?? bunkerPubkey
-    console.log('[NIP-46] User pubkey:', hexPubkey,
-      discoveredUserPubkey ? '(via RPC)' : '(bunker key fallback)')
-
-    // Persist session for restore
-    const session: Nip46Session = {
-      clientSecretKeyHex: bytesToHex(clientSecretKey),
-      bunkerPubkey,
-      relays: connectRelays,
-      ...(discoveredUserPubkey ? { userPubkey: discoveredUserPubkey } : {}),
-    }
-    localStorage.setItem(NIP46_SESSION_KEY, JSON.stringify(session))
-
-    activeBunkerSigner = signer
-    return hexPubkey
-  })()
+  })
 
   return {
     promise,
-    abort: () => {
-      abortController.abort()
-      if (retryInterval) { clearInterval(retryInterval); retryInterval = null }
-      earlySub.close()
-      try { earlyPool.close(connectRelays) } catch { /* ignore */ }
-    },
+    abort: () => { aborted = true },
   }
 }
 
-/**
- * Try to discover the user's actual pubkey via BunkerSigner RPCs.
- * Races getPublicKey() against signEvent() (the signed event's pubkey = user's key).
- * Returns the first valid hex pubkey, or null on timeout.
- */
-function discoverPubkeyViaSigner(signer: BunkerSigner, timeoutMs: number): Promise<string | null> {
-  return new Promise<string | null>((resolve) => {
-    let resolved = false
-    const done = (pubkey: string | null) => {
-      if (resolved) return
-      resolved = true
-      resolve(pubkey)
-    }
-
-    setTimeout(() => done(null), timeoutMs)
-
-    // Method A: getPublicKey — the standard NIP-46 way
-    signer.getPublicKey()
-      .then((pk) => {
-        if (/^[0-9a-f]{64}$/.test(pk)) {
-          console.log('[NIP-46] getPublicKey() succeeded:', pk.slice(0, 12))
-          done(pk)
-        }
-      })
-      .catch(() => {})
-
-    // Method B: signEvent — sign a dummy event and extract pubkey from the result.
-    // We use kind 0 (metadata) since we already requested sign_event:0 permission.
-    // The event is never published; we only inspect the signed event's pubkey field.
-    signer.signEvent({
-      kind: 0,
-      created_at: Math.floor(Date.now() / 1000),
-      tags: [],
-      content: '{}',
-    })
-      .then((signed) => {
-        const pk = (signed as { pubkey?: string }).pubkey
-        if (pk && /^[0-9a-f]{64}$/.test(pk)) {
-          console.log('[NIP-46] signEvent() revealed user pubkey:', pk.slice(0, 12))
-          done(pk)
-        }
-      })
-      .catch(() => {})
-  })
+function persistSession(clientSecretKey: Uint8Array, bunkerPubkey: string, userPubkey: string | null) {
+  const session: Nip46Session = {
+    clientSecretKeyHex: bytesToHex(clientSecretKey),
+    bunkerPubkey,
+    relays: NIP46_RELAYS,
+    ...(userPubkey ? { userPubkey } : {}),
+  }
+  localStorage.setItem(NIP46_SESSION_KEY, JSON.stringify(session))
 }
 
 // ── NIP-07 Extension Flow ────────────────────────────────
 
-/**
- * Login using a NIP-07 browser extension (Alby, nos2x, etc.).
- * Returns the hex pubkey from the extension.
- */
 export async function loginWithExtension(): Promise<string> {
   if (!window.nostr) {
     throw new Error('No Nostr browser extension found. Install Alby, nos2x, or similar.')
   }
   const hexPubkey = await window.nostr.getPublicKey()
-  activeBunkerSigner = null // Extension handles signing via window.nostr
+  activeBunkerSigner = null
   return hexPubkey
 }
 
 // ── Session Persistence ──────────────────────────────────
 
-/**
- * Restore a previous NIP-46 session from localStorage.
- * Recreates the BunkerSigner and verifies the connection.
- * Returns the hex pubkey or null if no session / session invalid.
- */
 export async function restoreNip46Session(): Promise<string | null> {
   const raw = localStorage.getItem(NIP46_SESSION_KEY)
   if (!raw) return null
@@ -320,7 +259,6 @@ export async function restoreNip46Session(): Promise<string | null> {
       secret: null,
     })
 
-    // Verify the connection is still alive; fall back to cached key if signer is offline
     let hexPubkey: string | null = null
     try {
       hexPubkey = await Promise.race([
@@ -330,23 +268,18 @@ export async function restoreNip46Session(): Promise<string | null> {
         ),
       ])
     } catch {
-      // Bunker offline (mobile signer backgrounded) — use cached pubkey
       hexPubkey = session.userPubkey ?? session.bunkerPubkey
       console.log('[NIP-46] Session restore: signer offline, using cached key')
     }
     activeBunkerSigner = signer
     return hexPubkey
   } catch (err) {
-    // Session invalid or bunker unreachable — clear it
     console.warn('[NIP-46] Session restore failed:', err)
     localStorage.removeItem(NIP46_SESSION_KEY)
     return null
   }
 }
 
-/**
- * Clear the stored NIP-46 session and close the active signer.
- */
 export async function clearNip46Session(): Promise<void> {
   localStorage.removeItem(NIP46_SESSION_KEY)
   if (activeBunkerSigner) {

@@ -110,4 +110,35 @@ describe('extractXmtpBinding', () => {
   it('should return null for invalid JSON', () => {
     expect(extractXmtpBinding('not json')).toBeNull()
   })
+
+  it('should extract binding from HackMD spec example', () => {
+    // Exact structure from https://hackmd.io/x43UXu6VS5y88YTIo3K5tw
+    const content = JSON.stringify({
+      name: 'Your Name',
+      picture: 'https://example.com/pic.jpg',
+      about: 'Your bio',
+      nip05: '_@yourdomain.com',
+      lud16: 'you@getalby.com',
+      xmtp: {
+        inboxId: 'inbox-abc123',
+        verificationSignature: 'base64sig',
+        createdAt: '2026-02-01T12:00:00Z',
+      },
+    })
+    const result = extractXmtpBinding(content)
+    expect(result).not.toBeNull()
+    expect(result!.inboxId).toBe('inbox-abc123')
+    expect(result!.verificationSignature).toBe('base64sig')
+    expect(result!.createdAt).toBe('2026-02-01T12:00:00Z')
+  })
+
+  it('should handle xmtp field without createdAt', () => {
+    const content = JSON.stringify({
+      xmtp: { inboxId: 'inbox-x', verificationSignature: 'sig-y' },
+    })
+    const result = extractXmtpBinding(content)
+    expect(result).not.toBeNull()
+    expect(result!.inboxId).toBe('inbox-x')
+    expect(result!.createdAt).toBeUndefined()
+  })
 })

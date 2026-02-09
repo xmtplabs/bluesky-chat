@@ -119,7 +119,7 @@ export const provider: IdentityProvider = {
     return dids
   },
 
-  hasRepoWriteAccess() {
+  canPublishIdentity() {
     return service.hasRepoWriteAccess()
   },
 

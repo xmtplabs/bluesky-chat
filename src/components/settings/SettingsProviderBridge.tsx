@@ -35,7 +35,7 @@ export function SettingsProviderBridge({ children }: SettingsProviderBridgeProps
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
 
-  const hasWriteAccess = provider.hasRepoWriteAccess?.() ?? false
+  const hasWriteAccess = provider.canPublishIdentity?.() ?? false
 
   // Check identity status on mount
   useEffect(() => {

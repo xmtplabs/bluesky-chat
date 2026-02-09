@@ -12,10 +12,10 @@ import {
 } from './nip46-auth'
 
 const DEFAULT_RELAYS = [
+  'wss://relay.primal.net',
   'wss://relay.damus.io',
   'wss://nos.lol',
   'wss://relay.snort.social',
-  'wss://relay.primal.net',
 ]
 
 const SESSION_KEY = 'nostr_session'
@@ -40,9 +40,13 @@ export class NostrService {
    * Generates a QR code data URL, calls onQrDataUrl so the UI can display
    * it, then waits for a bunker app to connect.
    */
-  async loginViaNip46(onQrDataUrl: (dataUrl: string) => void, onConnected?: () => void): Promise<UserProfile> {
+  async loginViaNip46(onQrDataUrl: (dataUrl: string) => void, onConnected?: () => void, onIdentityReady?: (identityId: string) => void): Promise<UserProfile> {
     console.log('[NostrService] loginViaNip46 called, relays:', this.relays)
-    const { promise, abort } = startNip46Connect(this.relays, onQrDataUrl, onConnected)
+    // Convert hex pubkey to npub for the identity-ready callback
+    const onPubkeyReady = onIdentityReady
+      ? (hexPubkey: string) => onIdentityReady(hexToNpub(hexPubkey))
+      : undefined
+    const { promise, abort } = startNip46Connect(this.relays, onQrDataUrl, onConnected, onPubkeyReady)
     this.nip46Abort = abort
 
     console.log('[NostrService] Awaiting NIP-46 connect promise...')
@@ -159,39 +163,54 @@ export class NostrService {
   // ── Profiles ──────────────────────────────────────────
 
   /**
-   * Fetch a profile via Primal cache, falling back to relays.
+   * Fetch a kind 0 (metadata) event via Primal cache, falling back to relays.
+   * Shared by fetchProfile, publishInboxBinding, lookupInboxBinding, and deleteInboxBinding.
    */
-  async fetchProfile(hexPubkey: string): Promise<UserProfile> {
-    console.log('[NostrService] fetchProfile for hex:', hexPubkey)
-
+  private async fetchKind0(hexPubkey: string): Promise<NostrEvent | null> {
+    console.log('[NostrService] fetchKind0 for:', hexPubkey.slice(0, 12))
     // Try Primal first (fast, indexed)
     try {
       const events = await primalCacheQuery('user_profile', { pubkey: hexPubkey }, 0)
-      console.log('[NostrService] Primal returned', events.length, 'events')
+      console.log('[NostrService] fetchKind0: Primal returned', events.length, 'events')
       const event = events.find((e) => e.pubkey === hexPubkey)
       if (event) {
-        console.log('[NostrService] Found matching Primal event')
-        return parseKind0Content(event.content, hexPubkey)
+        console.log('[NostrService] fetchKind0: found via Primal')
+        return event
       }
-      console.log('[NostrService] No matching Primal event for pubkey')
     } catch (err) {
       console.warn('[NostrService] Primal cache query failed:', err)
     }
 
-    // Fallback to relays
-    console.log('[NostrService] Trying relay fallback on:', this.relays)
-    const event = await this.pool.get(this.relays, {
-      kinds: [0],
-      authors: [hexPubkey],
-    })
+    // Fallback to relays with timeout (pool.get can hang if relays are unresponsive)
+    console.log('[NostrService] fetchKind0: trying relay fallback...')
+    try {
+      const event = await Promise.race([
+        this.pool.get(this.relays, { kinds: [0], authors: [hexPubkey] }),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000)),
+      ])
+      if (event) {
+        console.log('[NostrService] fetchKind0: found via relay')
+      } else {
+        console.log('[NostrService] fetchKind0: not found (relay timeout or no event)')
+      }
+      return event
+    } catch {
+      console.warn('[NostrService] fetchKind0: relay fallback failed')
+      return null
+    }
+  }
+
+  /**
+   * Fetch a profile via Primal cache, falling back to relays.
+   */
+  async fetchProfile(hexPubkey: string): Promise<UserProfile> {
+    const event = await this.fetchKind0(hexPubkey)
 
     if (!event) {
-      console.warn('[NostrService] No kind 0 event found on relays either')
       const npub = hexToNpub(hexPubkey)
       return { id: npub, handle: npub.slice(0, 12) + '…' }
     }
 
-    console.log('[NostrService] Found kind 0 event on relay')
     return parseKind0Content(event.content, hexPubkey)
   }
 
@@ -278,10 +297,7 @@ export class NostrService {
     if (!this.hexPubkey) throw new Error('Not logged in')
 
     // Fetch current kind 0 to merge
-    const existing = await this.pool.get(this.relays, {
-      kinds: [0],
-      authors: [this.hexPubkey],
-    })
+    const existing = await this.fetchKind0(this.hexPubkey)
 
     let metadata: Record<string, unknown> = {}
     if (existing) {
@@ -306,12 +322,17 @@ export class NostrService {
       content: JSON.stringify(metadata),
     }
 
+    console.log('[NostrService] publishInboxBinding: requesting NIP-46 sign...')
     const signedEvent = await this.signEvent(eventTemplate)
+    console.log('[NostrService] publishInboxBinding: sign succeeded, publishing to relays...')
 
     // Publish to all relays
-    await Promise.allSettled(
+    const results = await Promise.allSettled(
       this.pool.publish(this.relays, signedEvent)
     )
+    const ok = results.filter(r => r.status === 'fulfilled').length
+    const fail = results.filter(r => r.status === 'rejected').length
+    console.log(`[NostrService] publishInboxBinding: published to ${ok}/${ok + fail} relays`)
   }
 
   /**
@@ -329,10 +350,7 @@ export class NostrService {
     const hexPubkey = decoded.pubkey
 
     try {
-      const event = await this.pool.get(this.relays, {
-        kinds: [0],
-        authors: [hexPubkey],
-      })
+      const event = await this.fetchKind0(hexPubkey)
 
       if (!event) return { found: false, notFound: true }
 
@@ -355,10 +373,7 @@ export class NostrService {
   async deleteInboxBinding(): Promise<void> {
     if (!this.hexPubkey) throw new Error('Not logged in')
 
-    const existing = await this.pool.get(this.relays, {
-      kinds: [0],
-      authors: [this.hexPubkey],
-    })
+    const existing = await this.fetchKind0(this.hexPubkey)
 
     let metadata: Record<string, unknown> = {}
     if (existing) {
@@ -417,8 +432,21 @@ export class NostrService {
   }) {
     if (this.loginMethod === 'nip46') {
       const signer = getActiveBunkerSigner()
-      if (signer) return signer.signEvent(eventTemplate)
-      throw new Error('NIP-46 signer not available')
+      if (!signer) throw new Error('NIP-46 signer not available')
+      console.log('[NostrService] signEvent: sending NIP-46 sign_event RPC for kind', eventTemplate.kind)
+      console.log('[NostrService] signEvent: signer relays:', signer.bp?.relays)
+      return Promise.race([
+        signer.signEvent(eventTemplate).then((result) => {
+          console.log('[NostrService] signEvent: signer responded successfully')
+          return result
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => {
+            console.warn('[NostrService] signEvent: 15s timeout — no response from signer')
+            reject(new Error('NIP-46 sign timed out (signer unresponsive)'))
+          }, 15000),
+        ),
+      ])
     }
 
     if (this.loginMethod === 'extension' && window.nostr) {
@@ -444,6 +472,9 @@ function hexToBytes(hex: string): Uint8Array {
 }
 
 // ── Primal Cache API ──────────────────────────────────────
+// Persistent WebSocket connection to Primal's caching service,
+// matching the pattern used by Primal's own web app:
+// single connection, multiplexed subscriptions via subId.
 
 const PRIMAL_CACHE_URL = 'wss://cache2.primal.net/v1'
 
@@ -455,59 +486,130 @@ interface NostrEvent {
   tags: string[][]
 }
 
-/**
- * Generic Primal cache query. Opens a WebSocket, sends the cache command,
- * collects events matching the filter kind, and resolves on EOSE.
- */
-function primalCacheQuery(
-  command: string,
-  payload: Record<string, unknown>,
-  filterKind?: number,
-): Promise<NostrEvent[]> {
-  return new Promise((resolve, reject) => {
-    const subId = command + '_' + Math.random().toString(36).slice(2, 8)
-    const events: NostrEvent[] = []
-    let ws: WebSocket
+interface PendingSub {
+  events: NostrEvent[]
+  filterKind?: number
+  resolve: (events: NostrEvent[]) => void
+  timeout: ReturnType<typeof setTimeout>
+}
 
-    const timeout = setTimeout(() => {
-      ws?.close()
-      resolve(events)
-    }, 5000)
+let primalSocket: WebSocket | null = null
+let primalSubs = new Map<string, PendingSub>()
+let primalReady: Promise<void> | null = null
+let primalQueue: string[] = [] // messages queued while connecting
 
+function getPrimalSocket(): Promise<void> {
+  if (primalSocket?.readyState === WebSocket.OPEN) {
+    return Promise.resolve()
+  }
+
+  if (primalReady && primalSocket?.readyState === WebSocket.CONNECTING) {
+    return primalReady
+  }
+
+  // Close stale socket if any
+  if (primalSocket) {
+    try { primalSocket.close() } catch { /* ignore */ }
+    primalSocket = null
+  }
+
+  primalReady = new Promise<void>((resolve, reject) => {
     try {
-      ws = new WebSocket(PRIMAL_CACHE_URL)
+      primalSocket = new WebSocket(PRIMAL_CACHE_URL)
     } catch (err) {
-      clearTimeout(timeout)
+      primalReady = null
       reject(err)
       return
     }
 
-    ws.onopen = () => {
-      ws.send(JSON.stringify(['REQ', subId, { cache: [command, payload] }]))
+    primalSocket.onopen = () => {
+      // Flush queued messages
+      for (const msg of primalQueue) {
+        primalSocket!.send(msg)
+      }
+      primalQueue = []
+      resolve()
     }
 
-    ws.onmessage = (msg) => {
+    primalSocket.onmessage = (msg) => {
       try {
         const data = JSON.parse(msg.data)
-        if (data[0] === 'EVENT' && data[1] === subId) {
-          if (filterKind === undefined || data[2]?.kind === filterKind) {
-            events.push(data[2])
+        const subId = data[1]
+        const sub = primalSubs.get(subId)
+        if (!sub) return
+
+        if (data[0] === 'EVENT' && data[2]) {
+          if (sub.filterKind === undefined || data[2].kind === sub.filterKind) {
+            sub.events.push(data[2])
           }
         }
-        if (data[0] === 'EOSE' && data[1] === subId) {
-          clearTimeout(timeout)
-          ws.close()
-          resolve(events)
+        if (data[0] === 'EOSE') {
+          clearTimeout(sub.timeout)
+          sub.resolve(sub.events)
+          primalSubs.delete(subId)
         }
       } catch {
         // ignore parse errors
       }
     }
 
-    ws.onerror = () => {
+    primalSocket.onerror = () => {
+      // Resolve all pending subs with whatever they have
+      for (const [id, sub] of primalSubs) {
+        clearTimeout(sub.timeout)
+        sub.resolve(sub.events)
+      }
+      primalSubs.clear()
+      primalSocket = null
+      primalReady = null
+    }
+
+    primalSocket.onclose = () => {
+      // Resolve any remaining subs
+      for (const [id, sub] of primalSubs) {
+        clearTimeout(sub.timeout)
+        sub.resolve(sub.events)
+      }
+      primalSubs.clear()
+      primalSocket = null
+      primalReady = null
+    }
+  })
+
+  return primalReady
+}
+
+function primalCacheQuery(
+  command: string,
+  payload: Record<string, unknown>,
+  filterKind?: number,
+): Promise<NostrEvent[]> {
+  return new Promise<NostrEvent[]>(async (resolve) => {
+    const subId = command + '_' + Math.random().toString(36).slice(2, 8)
+
+    const timeout = setTimeout(() => {
+      const sub = primalSubs.get(subId)
+      if (sub) {
+        sub.resolve(sub.events)
+        primalSubs.delete(subId)
+      }
+    }, 5000)
+
+    primalSubs.set(subId, { events: [], filterKind, resolve, timeout })
+
+    try {
+      await getPrimalSocket()
+      const msg = JSON.stringify(['REQ', subId, { cache: [command, payload] }])
+      if (primalSocket?.readyState === WebSocket.OPEN) {
+        primalSocket.send(msg)
+      } else {
+        // Socket not ready yet — queue it
+        primalQueue.push(msg)
+      }
+    } catch {
       clearTimeout(timeout)
-      ws.close()
-      resolve(events)
+      primalSubs.delete(subId)
+      resolve([])
     }
   })
 }

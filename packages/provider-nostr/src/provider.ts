@@ -39,6 +39,10 @@ export const provider: IdentityProvider = {
     await service.deleteInboxBinding()
   },
 
+  canPublishIdentity() {
+    return service.isLoggedIn()
+  },
+
   async getProfile(id: string) {
     return service.getProfile(id)
   },
@@ -81,7 +85,7 @@ export const provider: IdentityProvider = {
  * so the LoginScreen imports these directly.
  */
 export const nip46: Nip46Helpers = {
-  startConnect: (onQrDataUrl: (dataUrl: string) => void, onConnected?: () => void) => service.loginViaNip46(onQrDataUrl, onConnected),
+  startConnect: (onQrDataUrl: (dataUrl: string) => void, onConnected?: () => void, onIdentityReady?: (identityId: string) => void) => service.loginViaNip46(onQrDataUrl, onConnected, onIdentityReady),
   cancelConnect: () => service.cancelNip46(),
   hasExtension: () => typeof window !== 'undefined' && !!window.nostr,
   loginWithExtension: () => service.loginWithExtension(),

@@ -30,7 +30,7 @@ export function DevTools() {
   const { getPhase, setPhase: setOnboardingPhase } = useOnboardingStore()
   const { checkIdentityStatus, revokeOtherInstallations: revokeOtherInstallationsWithResign } = useAuthStore()
 
-  const hasWriteAccess = provider.hasRepoWriteAccess?.() ?? false
+  const hasWriteAccess = provider.canPublishIdentity?.() ?? false
   const onboardingPhase = profile?.id ? getPhase(profile.id) : { phase: 'fresh' as const }
 
   // Fetch build mode from main process

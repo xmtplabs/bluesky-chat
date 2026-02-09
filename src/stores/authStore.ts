@@ -85,6 +85,124 @@ export const useOnboardingStore = create<OnboardingState>()(
   )
 )
 
+// Module-level timer for binding retry (cleared on logout)
+let bindingRetryTimer: ReturnType<typeof setTimeout> | null = null
+// Guard against concurrent connectXMTP calls
+let connectXMTPInFlight: Promise<void> | null = null
+
+/**
+ * Retry the identity binding in the background with exponential backoff.
+ * Mobile signers (Primal) go to background after approving the NIP-46 connect,
+ * so the first signEvent attempt often fails. This retries until the signer
+ * becomes responsive again (e.g. user reopens the mobile app).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function scheduleBindingRetry(
+  profile: UserProfile,
+  inboxId: string,
+  client: any,
+  set: (partial: Partial<AuthState>) => void,
+  attempt = 0,
+): void {
+  const delays = [15_000, 30_000, 60_000] // 15s, 30s, 60s then stop
+  if (attempt >= delays.length) {
+    console.log('[auth] Binding retry: giving up after', attempt, 'attempts')
+    return
+  }
+  bindingRetryTimer = setTimeout(async () => {
+    bindingRetryTimer = null
+    console.log('[auth] Binding retry attempt', attempt + 1)
+    try {
+      await Promise.race([
+        checkAndPublishBinding(profile, inboxId, client, set),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('timeout')), 10_000),
+        ),
+      ])
+      console.log('[auth] Binding retry succeeded')
+    } catch {
+      console.log('[auth] Binding retry failed, scheduling next attempt')
+      scheduleBindingRetry(profile, inboxId, client, set, attempt + 1)
+    }
+  }, delays[attempt])
+}
+
+/**
+ * Check for an existing identity binding and publish a new one if needed.
+ * Extracted so connectXMTP can race it against a timeout.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function checkAndPublishBinding(
+  profile: UserProfile,
+  inboxId: string,
+  client: any,
+  set: (partial: Partial<AuthState>) => void,
+): Promise<void> {
+  verboseLog('Checking for existing identity binding...')
+  const existingBinding = await provider.lookupInboxForIdentity(profile.id)
+
+  if (existingBinding.found) {
+    verboseLog('Found existing record with inboxId:', existingBinding.inboxId)
+
+    if (existingBinding.inboxId === inboxId) {
+      verboseLog('Existing record matches our inbox ID - verifying signature...')
+      const verifyResult = await identityService.verifyIdentityBinding(
+        existingBinding.inboxId,
+        profile.id,
+        existingBinding.verificationSignature
+      )
+
+      if (verifyResult.verified) {
+        verboseLog('Signature is valid')
+        set({ identityMismatch: false, signatureInvalid: false, publishedInboxId: inboxId })
+      } else if (verifyResult.definitive) {
+        verboseWarn('Published signature is invalid!')
+        set({ identityMismatch: false, signatureInvalid: true, publishedInboxId: inboxId, mismatchDismissed: false })
+      } else {
+        verboseWarn('Could not verify signature (network error)')
+        set({ identityMismatch: false, signatureInvalid: false, publishedInboxId: inboxId })
+      }
+
+      const signature = await signDidWithInstallationKey(client, profile.id)
+      await identityService.linkIdentity(profile.id, profile.handle, inboxId, signature)
+
+      console.log('[auth] Registering existing mapping with backend for:', profile.id)
+      mappingBackend.registerMapping({ id: profile.id })
+        .then((success) => console.log('[auth] Backend registration result:', success ? 'success' : 'failed'))
+        .catch((error) => console.warn('[auth] Backend registration error (non-critical):', error))
+    } else {
+      verboseWarn(`Identity mismatch! Published binding has inbox ${existingBinding.inboxId} but local client has ${inboxId}`)
+      verboseWarn('This may happen if you logged in on a different device first. Messages sent to you will go to the published inbox.')
+      set({ identityMismatch: true, signatureInvalid: false, publishedInboxId: existingBinding.inboxId, mismatchDismissed: false })
+
+      const signature = await signDidWithInstallationKey(client, profile.id)
+      await identityService.linkIdentity(profile.id, profile.handle, inboxId, signature)
+    }
+  } else {
+    verboseLog('No existing identity binding found, creating new binding...')
+    const signature = await signDidWithInstallationKey(client as any, profile.id)
+
+    if (provider.canPublishIdentity?.() ?? false) {
+      verboseLog('Publishing new identity binding via provider...')
+      try {
+        await provider.publishInboxBinding(inboxId, signature)
+        verboseLog('Identity published via provider')
+
+        console.log('[auth] Registering mapping with backend for:', profile.id)
+        mappingBackend.registerMapping({ id: profile.id })
+          .then((success) => console.log('[auth] Backend registration result:', success ? 'success' : 'failed'))
+          .catch((error) => console.warn('[auth] Backend registration error (non-critical):', error))
+      } catch (publishError) {
+        verboseWarn('Failed to publish identity via provider:', publishError)
+      }
+    } else {
+      verboseLog('Skipping identity publish (no write access).')
+    }
+
+    await identityService.linkIdentity(profile.id, profile.handle, inboxId, signature)
+  }
+}
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   profile: null,
   isLoggedIn: false,
@@ -171,177 +289,87 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   connectXMTP: async () => {
-    // Log call with stack trace for debugging (dev/beta only)
-    verboseGroup('📡 connectXMTP called')
-    verboseLog('Timestamp:', new Date().toISOString())
-    if (import.meta.env.DEV) console.trace('Call stack:')
-    verboseGroupEnd()
+    // Guard: don't double-init (may be called early from onIdentityReady + later from ConnectionProviderBridge)
+    if (get().isXMTPConnected) return
+    if (connectXMTPInFlight) return connectXMTPInFlight
 
-    set({ isLoading: true, error: null })
+    const doConnect = async () => {
+      // Log call with stack trace for debugging (dev/beta only)
+      verboseGroup('📡 connectXMTP called')
+      verboseLog('Timestamp:', new Date().toISOString())
+      if (import.meta.env.DEV) console.trace('Call stack:')
+      verboseGroupEnd()
 
-    try {
-      const { profile } = get()
+      set({ isLoading: true, error: null })
 
-      // Step 1: Initialize XMTP client FIRST (needed for verification)
-      // Each identity gets its own XMTP installation key
-      if (!profile) {
-        throw new Error('Profile required for XMTP connection')
-      }
+      try {
+        const { profile } = get()
 
-      verboseLog('📡 connectXMTP: Getting or creating private key for DID:', profile.id)
-      const privateKey = await getOrCreatePrivateKey(profile.id)
-      const address = getAddressFromPrivateKey(privateKey)
-      verboseLog('📡 connectXMTP: Got address:', address)
-
-      verboseLog('📡 connectXMTP: Creating XMTP signer...')
-      const signer = createXMTPSigner(privateKey)
-      verboseLog('📡 connectXMTP: Signer created, initializing XMTP client...')
-      const client = await xmtpService.init(signer)
-      verboseLog('📡 connectXMTP: XMTP client initialized:', client.inboxId)
-
-      const inboxId = client.inboxId
-
-      // Step 2: Check for existing identity binding in ATProto (now that XMTP is ready)
-      if (profile && inboxId) {
-        verboseLog('Checking for existing org.xmtp.inbox record...')
-        const existingBinding = await provider.lookupInboxForIdentity(profile.id)
-
-        if (existingBinding.found) {
-          verboseLog('Found existing record with inboxId:', existingBinding.inboxId)
-
-          // Check if the existing record matches our current inbox
-          if (existingBinding.inboxId === inboxId) {
-            // Inbox ID matches - verify the signature is valid
-            verboseLog('Existing record matches our inbox ID - verifying signature...')
-            const verifyResult = await identityService.verifyIdentityBinding(
-              existingBinding.inboxId,
-              profile.id,
-              existingBinding.verificationSignature
-            )
-
-            if (verifyResult.verified) {
-              verboseLog('Signature is valid')
-              set({
-                identityMismatch: false,
-                signatureInvalid: false,
-                publishedInboxId: inboxId
-              })
-            } else if (verifyResult.definitive) {
-              // Signature is definitively invalid - track this for UI
-              verboseWarn('Published signature is invalid!')
-              set({
-                identityMismatch: false,
-                signatureInvalid: true,
-                publishedInboxId: inboxId,
-                mismatchDismissed: false
-              })
-            } else {
-              // Network error - can't verify, assume valid for now
-              verboseWarn('Could not verify signature (network error)')
-              set({
-                identityMismatch: false,
-                signatureInvalid: false,
-                publishedInboxId: inboxId
-              })
-            }
-
-            // Cache locally with a fresh signature for sending
-            const signature = await signDidWithInstallationKey(client, profile.id)
-            await identityService.linkIdentity(
-              profile.id,
-              profile.handle,
-              inboxId,
-              signature
-            )
-
-            // Register with backend to ensure it has this mapping
-            console.log('[auth] Registering existing mapping with backend for:', profile.id)
-            mappingBackend.registerMapping({
-              id: profile.id
-            }).then((success) => {
-              console.log('[auth] Backend registration result:', success ? 'success' : 'failed')
-            }).catch((error) => {
-              console.warn('[auth] Backend registration error (non-critical):', error)
-            })
-          } else {
-            // Different inbox ID - this is a conflict
-            verboseWarn(
-              `Identity mismatch! ATProto has inbox ${existingBinding.inboxId} but local client has ${inboxId}`
-            )
-            verboseWarn(
-              'This may happen if you logged in on a different device first. ' +
-                'Messages sent to you will go to the ATProto-linked inbox.'
-            )
-            // Track the mismatch for UI display
-            set({
-              identityMismatch: true,
-              signatureInvalid: false,
-              publishedInboxId: existingBinding.inboxId,
-              mismatchDismissed: false
-            })
-            // Don't overwrite - the existing record might be intentional
-            // Just cache our local inbox without publishing
-            const signature = await signDidWithInstallationKey(client, profile.id)
-            await identityService.linkIdentity(
-              profile.id,
-              profile.handle,
-              inboxId,
-              signature
-            )
-          }
-        } else {
-          // No existing record - create new binding
-          verboseLog('No existing org.xmtp.inbox record found, creating new binding...')
-          const signature = await signDidWithInstallationKey(client, profile.id)
-
-          if (provider.hasRepoWriteAccess?.() ?? false) {
-            verboseLog('Publishing new identity binding via provider...')
-            try {
-              await provider.publishInboxBinding(inboxId, signature)
-              verboseLog('Identity published via provider')
-
-              // Register with backend service for faster lookups
-              console.log('[auth] Registering mapping with backend for:', profile.id)
-              mappingBackend.registerMapping({
-                id: profile.id
-              }).then((success) => {
-                console.log('[auth] Backend registration result:', success ? 'success' : 'failed')
-              }).catch((error) => {
-                console.warn('[auth] Backend registration error (non-critical):', error)
-              })
-            } catch (publishError) {
-              verboseWarn('Failed to publish identity via provider:', publishError)
-            }
-          } else {
-            verboseLog(
-              'Skipping identity publish (no write access). Use App Password for full identity linking.'
-            )
-          }
-
-          await identityService.linkIdentity(
-            profile.id,
-            profile.handle,
-            inboxId,
-            signature
-          )
+        // Step 1: Initialize XMTP client FIRST (needed for verification)
+        // Each identity gets its own XMTP installation key
+        if (!profile) {
+          throw new Error('Profile required for XMTP connection')
         }
+
+        verboseLog('📡 connectXMTP: Getting or creating private key for DID:', profile.id)
+        const privateKey = await getOrCreatePrivateKey(profile.id)
+        const address = getAddressFromPrivateKey(privateKey)
+        verboseLog('📡 connectXMTP: Got address:', address)
+
+        verboseLog('📡 connectXMTP: Creating XMTP signer...')
+        const signer = createXMTPSigner(privateKey)
+        verboseLog('📡 connectXMTP: Signer created, initializing XMTP client...')
+        const client = await xmtpService.init(signer)
+        verboseLog('📡 connectXMTP: XMTP client initialized:', client.inboxId)
+
+        const inboxId = client.inboxId
+
+        // Step 2: Check for existing identity binding (now that XMTP is ready)
+        // This is non-critical — if it times out (e.g. mobile signer went to background),
+        // skip it and retry in the background. The binding will be published once the
+        // signer becomes responsive again (e.g. user reopens Primal mobile).
+        if (profile && inboxId) {
+          const BINDING_TIMEOUT_MS = 10_000
+          let bindingDone = false
+          try {
+            await Promise.race([
+              checkAndPublishBinding(profile, inboxId, client, set),
+              new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error('Identity binding timed out')), BINDING_TIMEOUT_MS),
+              ),
+            ])
+            bindingDone = true
+          } catch (bindingError) {
+            console.warn('[auth] Identity binding skipped:', bindingError instanceof Error ? bindingError.message : bindingError)
+          }
+
+          // If the initial attempt failed (likely signer went to background),
+          // retry periodically until it succeeds or the user logs out.
+          if (!bindingDone) {
+            scheduleBindingRetry(profile, inboxId, client, set)
+          }
+        }
+
+        set({
+          isXMTPConnected: true,
+          xmtpAddress: address,
+          xmtpInboxId: client.inboxId
+        })
+
+        // Load following DIDs for primary/requests inbox filtering
+        useProfileStore.getState().loadAllFollowingDids()
+      } catch (error) {
+        console.error('XMTP connection failed:', error)
+        set({ error: error instanceof Error ? error.message : 'XMTP connection failed' })
+        throw error
+      } finally {
+        set({ isLoading: false })
+        connectXMTPInFlight = null
       }
-
-      set({
-        isXMTPConnected: true,
-        xmtpAddress: address,
-        xmtpInboxId: client.inboxId
-      })
-
-      // Load following DIDs for primary/requests inbox filtering
-      useProfileStore.getState().loadAllFollowingDids()
-    } catch (error) {
-      console.error('XMTP connection failed:', error)
-      set({ error: error instanceof Error ? error.message : 'XMTP connection failed' })
-      throw error
-    } finally {
-      set({ isLoading: false })
     }
+
+    connectXMTPInFlight = doConnect()
+    return connectXMTPInFlight
   },
 
   updateUserProfile: async (updates: { displayName?: string; description?: string; avatar?: Blob }) => {
@@ -370,7 +398,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       throw new Error('Profile and XMTP connection required')
     }
 
-    if (!(provider.hasRepoWriteAccess?.() ?? false)) {
+    if (!(provider.canPublishIdentity?.() ?? false)) {
       throw new Error('Write access required to republish identity')
     }
 
@@ -425,11 +453,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       throw new Error('Profile and XMTP connection required')
     }
 
-    // Re-sign the ATProto record with current installation BEFORE revoking others.
+    // Re-sign the identity binding with current installation BEFORE revoking others.
     // This ensures the signature remains valid after revocation.
-    // Without this, if another installation signed the record, revoking it would
+    // Without this, if another installation signed the binding, revoking it would
     // orphan the signature and cause verification to fail.
-    if (provider.hasRepoWriteAccess?.() ?? false) {
+    if (provider.canPublishIdentity?.() ?? false) {
       try {
         const client = xmtpService.getClient()
 
@@ -464,11 +492,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             mismatchDismissed: false
           })
 
-          console.log('ATProto record re-signed with current installation')
+          console.log('Identity binding re-signed with current installation')
         }
       } catch (error) {
         // Log but don't fail - user can fix signature later via banner
-        console.warn('Could not re-sign ATProto record:', error)
+        console.warn('Could not re-sign identity binding:', error)
       }
     }
 
@@ -534,6 +562,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   logout: async () => {
     set({ isLoading: true })
+
+    // Cancel any pending binding retry
+    if (bindingRetryTimer) { clearTimeout(bindingRetryTimer); bindingRetryTimer = null }
 
     try {
       await provider.logout()

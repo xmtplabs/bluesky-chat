@@ -50,7 +50,7 @@ export interface IdentityProvider {
   getAllFollowingIds?(id: string): Promise<Set<string>>
 
   // Provider-specific capabilities
-  hasRepoWriteAccess?(): boolean
+  canPublishIdentity?(): boolean
   uploadBlob?(blob: Blob): Promise<string>
   updateProfile?(updates: { displayName?: string; description?: string; avatar?: Blob }): Promise<UserProfile>
 }
@@ -82,7 +82,7 @@ export interface ProviderConfig {
  * Null for non-Nostr providers.
  */
 export interface Nip46Helpers {
-  startConnect: (onQrDataUrl: (dataUrl: string) => void, onConnected?: () => void) => Promise<UserProfile>
+  startConnect: (onQrDataUrl: (dataUrl: string) => void, onConnected?: () => void, onIdentityReady?: (identityId: string) => void) => Promise<UserProfile>
   cancelConnect: () => void
   hasExtension: () => boolean
   loginWithExtension: () => Promise<UserProfile>

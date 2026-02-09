@@ -199,6 +199,55 @@ describe('NostrService', () => {
     })
   })
 
+  describe('binding round-trip', () => {
+    it('should publish xmtp binding to kind 0 and look it up again', async () => {
+      // Setup: login via extension so we can sign
+      ;(window as any).nostr = {
+        getPublicKey: vi.fn().mockResolvedValue('a'.repeat(64)),
+        signEvent: vi.fn((t: any) => ({ ...t, id: 'id', pubkey: 'a'.repeat(64), sig: 'sig' })),
+      }
+
+      mockPool.get.mockResolvedValue({
+        kind: 0,
+        content: JSON.stringify({ name: 'alice' }),
+        pubkey: 'a'.repeat(64),
+      })
+      await service.loginWithExtension()
+
+      // Publish: merge xmtp into kind 0
+      mockPool.get.mockResolvedValue({
+        kind: 0,
+        content: JSON.stringify({ name: 'alice', about: 'bio' }),
+        pubkey: 'a'.repeat(64),
+      })
+      await service.publishInboxBinding('inbox-abc123', 'c2lnbmF0dXJl')
+
+      // Verify the signed event has correct structure per HackMD spec
+      const signCall = (window as any).nostr.signEvent.mock.calls.at(-1)[0]
+      const metadata = JSON.parse(signCall.content)
+      expect(metadata.name).toBe('alice')
+      expect(metadata.about).toBe('bio')
+      expect(metadata.xmtp).toEqual({
+        inboxId: 'inbox-abc123',
+        verificationSignature: 'c2lnbmF0dXJl',
+        createdAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+      })
+
+      // Lookup: should find the binding from a kind 0 event containing the xmtp field
+      mockPool.get.mockResolvedValue({
+        kind: 0,
+        content: signCall.content,
+        pubkey: 'a'.repeat(64),
+      })
+      const result = await service.lookupInboxBinding('npub1mock')
+      expect(result.found).toBe(true)
+      if (result.found) {
+        expect(result.inboxId).toBe('inbox-abc123')
+        expect(result.verificationSignature).toBe('c2lnbmF0dXJl')
+      }
+    })
+  })
+
   describe('publishInboxBinding', () => {
     it('should merge xmtp field into existing metadata', async () => {
       ;(window as any).nostr = {

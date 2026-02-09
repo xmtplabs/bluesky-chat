@@ -41,6 +41,7 @@ vi.mock('./nostr', () => {
     publishInboxBinding = vi.fn().mockResolvedValue(undefined)
     lookupInboxBinding = vi.fn().mockResolvedValue({ found: false, notFound: true })
     deleteInboxBinding = vi.fn().mockResolvedValue(undefined)
+    isLoggedIn = vi.fn().mockReturnValue(true)
     getFollowing = vi.fn().mockResolvedValue([])
     fetchProfile = vi.fn()
   }
@@ -75,6 +76,13 @@ describe('Nostr provider adapter', () => {
     expect(nip46.cancelConnect).toBeTypeOf('function')
     expect(nip46.hasExtension).toBeTypeOf('function')
     expect(nip46.loginWithExtension).toBeTypeOf('function')
+  })
+
+  it('should report publish capability via canPublishIdentity', () => {
+    // After the mock NostrService is constructed, the provider delegates to it.
+    // The mock always has a logged-in state, so canPublishIdentity should be true.
+    expect(provider.canPublishIdentity).toBeTypeOf('function')
+    expect(provider.canPublishIdentity!()).toBe(true)
   })
 
   it('nip46.startConnect should delegate to NostrService.loginViaNip46', async () => {

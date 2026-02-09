@@ -16,7 +16,7 @@ export function IdentityMismatchBanner() {
   const [showSuccess, setShowSuccess] = useState(false)
   const successRef = useRef(false)
 
-  const hasWriteAccess = provider.hasRepoWriteAccess?.() ?? false
+  const hasWriteAccess = provider.canPublishIdentity?.() ?? false
 
   // Show banner for either mismatch or invalid signature (or briefly after fix)
   const hasIssue = identityMismatch || signatureInvalid || showSuccess || successRef.current

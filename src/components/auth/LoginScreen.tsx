@@ -253,6 +253,16 @@ function Nip46LoginButton() {
         console.log('[LoginScreen] Signer connected, waiting for approval...')
         setSignerConnected(true)
       },
+      (identityId) => {
+        // Pubkey discovered while the mobile signer is still in the foreground.
+        // Start XMTP init NOW so that by the time the binding needs to be signed,
+        // the inbox ID is already available and the signer is still responsive.
+        console.log('[LoginScreen] Identity ready, pre-starting XMTP init for:', identityId)
+        useAuthStore.setState({ profile: { id: identityId, handle: identityId.slice(0, 16) + '…' } })
+        useAuthStore.getState().connectXMTP().catch((err) => {
+          console.warn('[LoginScreen] Early XMTP init failed (will retry later):', err)
+        })
+      },
     ).then(
       (profile) => {
         console.log('[LoginScreen] NIP-46 connect resolved:', profile)

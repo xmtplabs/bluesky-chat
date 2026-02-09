@@ -11,7 +11,7 @@ vi.mock('../provider', () => ({
     lookupInboxForIdentity: vi.fn().mockResolvedValue({ found: false, notFound: true }),
     publishInboxBinding: vi.fn().mockResolvedValue(undefined),
     deleteInboxBinding: vi.fn().mockResolvedValue(undefined),
-    hasRepoWriteAccess: vi.fn().mockReturnValue(true),
+    canPublishIdentity: vi.fn().mockReturnValue(true),
     getProfile: vi.fn().mockResolvedValue(null),
     getProfiles: vi.fn().mockResolvedValue(new Map()),
     searchUsers: vi.fn().mockResolvedValue([]),
