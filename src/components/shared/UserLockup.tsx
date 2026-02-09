@@ -1,8 +1,9 @@
-import type { BlueskyProfile } from '../../types'
+import type { UserProfile } from '../../types'
+import { formatHandle } from '../../provider'
 import { Avatar } from './Avatar'
 
 interface UserLockupProps {
-  profile: BlueskyProfile
+  profile: UserProfile
   onClick?: () => void
   size?: 'sm' | 'md'
 }
@@ -28,7 +29,7 @@ export function UserLockup({ profile, onClick, size = 'md' }: UserLockupProps) {
           {displayName}
         </p>
         <p className={`${handleSize} text-[var(--color-text-secondary)] truncate`}>
-          @{profile.handle}
+          {formatHandle(profile.handle)}
         </p>
       </div>
     </>

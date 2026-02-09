@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import type { Env, BulkRequest, BulkResponse } from '../types'
-import { getMappingsByDids, getMappingsByInboxIds } from '../services/db'
+import { getMappingsByIdentityIds, getMappingsByInboxIds } from '../services/db'
+import { getIdentityProvider } from '../services/identity'
 
 const bulk = new Hono<{ Bindings: Env }>()
 
@@ -12,8 +13,8 @@ const MAX_BULK_SIZE = 100
  *
  * Request body:
  * {
- *   "type": "by-did" | "by-inbox",
- *   "identifiers": ["did:plc:a", "did:plc:b", ...]
+ *   "type": "by-id" | "by-inbox",
+ *   "identifiers": ["did:plc:a", "npub1...", ...]
  * }
  */
 bulk.post('/', async (c) => {
@@ -30,8 +31,8 @@ bulk.post('/', async (c) => {
   }
 
   // Validate request
-  if (!body.type || typeof body.type !== 'string' || !['by-did', 'by-inbox'].includes(body.type)) {
-    return c.json({ error: 'Invalid type. Must be "by-did" or "by-inbox"' }, 400)
+  if (!body.type || typeof body.type !== 'string' || !['by-id', 'by-inbox'].includes(body.type)) {
+    return c.json({ error: 'Invalid type. Must be "by-id" or "by-inbox"' }, 400)
   }
 
   if (!Array.isArray(body.identifiers)) {
@@ -52,25 +53,27 @@ bulk.post('/', async (c) => {
   // Dedupe and validate identifiers
   const uniqueIds = [...new Set(body.identifiers)]
 
-  if (body.type === 'by-did') {
-    // Validate DID formats
-    const invalidDids = uniqueIds.filter(
-      (id) => !id.startsWith('did:plc:') && !id.startsWith('did:web:')
+  if (body.type === 'by-id') {
+    const identityProvider = getIdentityProvider(c.env)
+
+    // Validate identity formats
+    const invalidIds = uniqueIds.filter(
+      (id) => !identityProvider.isValidIdentity(id)
     )
-    if (invalidDids.length > 0) {
+    if (invalidIds.length > 0) {
       return c.json(
-        { error: `Invalid DID format: ${invalidDids[0]}` },
+        { error: `Invalid identity format: ${invalidIds[0]}` },
         400
       )
     }
 
-    const mappings = await getMappingsByDids(c.env.DB, uniqueIds)
-    const foundDids = new Set(mappings.map((m) => m.did))
-    const notFound = uniqueIds.filter((id) => !foundDids.has(id))
+    const mappings = await getMappingsByIdentityIds(c.env.DB, uniqueIds)
+    const foundIds = new Set(mappings.map((m) => m.identityId))
+    const notFound = uniqueIds.filter((id) => !foundIds.has(id))
 
     const response: BulkResponse = {
       mappings: mappings.map((m) => ({
-        did: m.did,
+        id: m.identityId,
         inboxId: m.inboxId
       })),
       notFound
@@ -94,7 +97,7 @@ bulk.post('/', async (c) => {
 
     const response: BulkResponse = {
       mappings: mappings.map((m) => ({
-        did: m.did,
+        id: m.identityId,
         inboxId: m.inboxId
       })),
       notFound

@@ -1,9 +1,9 @@
 import { useState, useCallback } from 'react'
 import { identityService } from '../services/identity'
-import type { BlueskyProfile, XmtpUserStatus } from '../types'
+import type { UserProfile, XmtpUserStatus } from '../types'
 
 /**
- * Shared hook for checking XMTP messaging eligibility of Bluesky users.
+ * Shared hook for checking XMTP messaging eligibility of users.
  * Used by both GroupAdminProviderBridge and NewConversationProviderBridge.
  *
  * Callers may invoke checkXmtpStatus for the same user on every effect run.
@@ -14,17 +14,17 @@ import type { BlueskyProfile, XmtpUserStatus } from '../types'
 export function useXmtpStatusChecker() {
   const [xmtpStatus, setXmtpStatus] = useState<Map<string, XmtpUserStatus>>(new Map())
 
-  const checkXmtpStatus = useCallback(async (user: BlueskyProfile) => {
+  const checkXmtpStatus = useCallback(async (user: UserProfile) => {
     // Don't flash 'checking' if we already have a status for this user
     setXmtpStatus(prev => {
-      const current = prev.get(user.did)
+      const current = prev.get(user.id)
       if (current) return prev
-      return new Map(prev).set(user.did, 'checking')
+      return new Map(prev).set(user.id, 'checking')
     })
 
     try {
-      const status = await identityService.checkXmtpStatus(user.did)
-      setXmtpStatus(prev => new Map(prev).set(user.did, status))
+      const status = await identityService.checkXmtpStatus(user.id)
+      setXmtpStatus(prev => new Map(prev).set(user.id, status))
     } catch {
       // Leave as 'checking' so the next effect run can retry
     }

@@ -1,14 +1,14 @@
--- DID↔InboxId mappings table
--- Stores verified cryptographic bindings between Bluesky DIDs and XMTP inbox IDs
+-- Identity↔InboxId mappings table
+-- Stores verified cryptographic bindings between identity IDs and XMTP inbox IDs
 
 CREATE TABLE IF NOT EXISTS mappings (
-  did TEXT PRIMARY KEY,           -- Bluesky DID (e.g., did:plc:abc123)
-  inbox_id TEXT NOT NULL UNIQUE,  -- XMTP inbox ID (hex string)
-  signature TEXT NOT NULL,        -- Base64-encoded verification signature
-  created_at INTEGER NOT NULL     -- Unix timestamp when first created
+  identity_id TEXT PRIMARY KEY,        -- Identity ID (DID, npub, hex pubkey, etc.)
+  inbox_id TEXT NOT NULL UNIQUE,       -- XMTP inbox ID (hex string)
+  signature TEXT NOT NULL,             -- Base64-encoded verification signature
+  created_at INTEGER NOT NULL          -- Unix timestamp when first created
 );
 
--- Index for reverse lookup (inbox_id → DID)
+-- Index for reverse lookup (inbox_id → identity)
 CREATE INDEX IF NOT EXISTS idx_inbox_id ON mappings(inbox_id);
 
 -- Index for admin stats query (ORDER BY created_at ASC)

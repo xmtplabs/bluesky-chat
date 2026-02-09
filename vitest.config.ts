@@ -2,13 +2,18 @@ import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import { resolve } from 'path'
 
+const provider = process.env.CHAT_PROVIDER || 'bluesky'
+
 export default defineConfig({
   plugins: [react()],
   test: {
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/test/setup.ts'],
-    include: ['src/**/*.{test,spec}.{js,ts,jsx,tsx}'],
+    include: [
+      'src/**/*.{test,spec}.{js,ts,jsx,tsx}',
+      `packages/provider-${provider}/src/**/*.{test,spec}.{js,ts,jsx,tsx}`,
+    ],
     coverage: {
       reporter: ['text', 'json', 'html'],
       exclude: ['node_modules/', 'src/test/']
@@ -16,7 +21,8 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@': resolve(__dirname, 'src')
+      '@': resolve(__dirname, 'src'),
+      '@provider': resolve(__dirname, `packages/provider-${provider}/src`),
     }
   }
 })

@@ -1,18 +1,42 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useAuthStore } from './authStore'
 
-// Mock the services
-vi.mock('../services/bluesky', () => ({
-  blueskyService: {
-    init: vi.fn().mockResolvedValue(undefined),
-    isLoggedIn: vi.fn().mockReturnValue(false),
+// Mock the provider
+vi.mock('../provider', () => ({
+  provider: {
+    restoreSession: vi.fn().mockResolvedValue(null),
     login: vi.fn(),
     loginWithPassword: vi.fn(),
     logout: vi.fn().mockResolvedValue(undefined),
-    getMyProfile: vi.fn(),
-    getAgent: vi.fn().mockReturnValue(null),
-    hasRepoWriteAccess: vi.fn().mockReturnValue(true)
-  }
+    lookupInboxForIdentity: vi.fn().mockResolvedValue({ found: false, notFound: true }),
+    publishInboxBinding: vi.fn().mockResolvedValue(undefined),
+    deleteInboxBinding: vi.fn().mockResolvedValue(undefined),
+    canPublishIdentity: vi.fn().mockReturnValue(true),
+    getProfile: vi.fn().mockResolvedValue(null),
+    getProfiles: vi.fn().mockResolvedValue(new Map()),
+    searchUsers: vi.fn().mockResolvedValue([]),
+  },
+  config: {
+    name: 'Bluesky',
+    loginPlaceholder: 'username',
+    loginSuffix: '.bsky.social',
+    loginMethods: ['oauth', 'password'],
+    mappingServiceUrl: 'https://bluesky-chat-mapping-service.xmtp.workers.dev',
+    supportsFollowers: true,
+    supportsFollowing: true,
+    supportsProfileUpdate: true,
+    supportsBlobUpload: true,
+    formatHandle: (handle: string) => `@${handle}`,
+    profileUrl: (handle: string) => `https://bsky.app/profile/${handle}`,
+    passwordHelp: {
+      placeholder: 'xxxx-xxxx-xxxx-xxxx',
+      url: 'https://bsky.app/settings/app-passwords',
+      label: 'Create an app password at',
+      linkText: 'bsky.app/settings/app-passwords',
+    },
+  },
+  formatHandle: (handle: string) => `@${handle}`,
+  nip46: null,
 }))
 
 vi.mock('../services/xmtp', () => ({
@@ -31,8 +55,6 @@ vi.mock('../services/identity', () => ({
     init: vi.fn().mockResolvedValue(undefined),
     cacheProfile: vi.fn(),
     linkIdentity: vi.fn().mockResolvedValue(undefined),
-    publishIdentityToATProto: vi.fn().mockResolvedValue(undefined),
-    lookupInboxForDid: vi.fn().mockResolvedValue({ found: false, notFound: true }),
     verifyIdentityBinding: vi.fn().mockResolvedValue({ verified: true }),
     clearProfileCache: vi.fn(),
     clearStatusCache: vi.fn()
@@ -91,8 +113,8 @@ describe('AuthStore', () => {
     vi.clearAllMocks()
     // Reset store state
     useAuthStore.setState({
-      blueskyProfile: null,
-      isBlueskyLoggedIn: false,
+      profile: null,
+      isLoggedIn: false,
       isXMTPConnected: false,
       xmtpAddress: null,
       xmtpInboxId: null,
@@ -105,8 +127,8 @@ describe('AuthStore', () => {
     it('should have correct initial values', () => {
       const state = useAuthStore.getState()
 
-      expect(state.blueskyProfile).toBeNull()
-      expect(state.isBlueskyLoggedIn).toBe(false)
+      expect(state.profile).toBeNull()
+      expect(state.isLoggedIn).toBe(false)
       expect(state.isXMTPConnected).toBe(false)
       expect(state.xmtpAddress).toBeNull()
       expect(state.xmtpInboxId).toBeNull()
@@ -126,8 +148,8 @@ describe('AuthStore', () => {
     })
 
     it('should handle errors gracefully', async () => {
-      const { blueskyService } = await import('../services/bluesky')
-      vi.mocked(blueskyService.init).mockRejectedValueOnce(new Error('Init failed'))
+      const { provider } = await import('../provider')
+      vi.mocked(provider.restoreSession).mockRejectedValueOnce(new Error('Init failed'))
 
       const { initializeServices } = useAuthStore.getState()
       await initializeServices()
@@ -138,39 +160,39 @@ describe('AuthStore', () => {
     })
   })
 
-  describe('loginWithBlueskyPassword', () => {
-    it('should login to Bluesky and set profile', async () => {
+  describe('loginWithPassword', () => {
+    it('should login and set profile', async () => {
       const mockProfile = {
-        did: 'did:plc:test123',
+        id: 'did:plc:test123',
         handle: 'test.bsky.social',
         displayName: 'Test User'
       }
 
-      const { blueskyService } = await import('../services/bluesky')
-      vi.mocked(blueskyService.loginWithPassword).mockResolvedValueOnce(mockProfile)
+      const { provider } = await import('../provider')
+      vi.mocked(provider.loginWithPassword!).mockResolvedValueOnce({ profile: mockProfile, id: mockProfile.id })
 
-      const { loginWithBlueskyPassword } = useAuthStore.getState()
-      await loginWithBlueskyPassword('test.bsky.social', 'password')
+      const { loginWithPassword } = useAuthStore.getState()
+      await loginWithPassword('test.bsky.social', 'password')
 
       const state = useAuthStore.getState()
-      expect(state.blueskyProfile).toEqual(mockProfile)
-      expect(state.isBlueskyLoggedIn).toBe(true)
+      expect(state.profile).toEqual(mockProfile)
+      expect(state.isLoggedIn).toBe(true)
       // Note: XMTP connection is now handled separately by ConnectionProviderBridge
       expect(state.isXMTPConnected).toBe(false)
     })
 
     it('should handle login errors', async () => {
-      const { blueskyService } = await import('../services/bluesky')
-      vi.mocked(blueskyService.loginWithPassword).mockRejectedValueOnce(
+      const { provider } = await import('../provider')
+      vi.mocked(provider.loginWithPassword!).mockRejectedValueOnce(
         new Error('Invalid credentials')
       )
 
-      const { loginWithBlueskyPassword } = useAuthStore.getState()
-      await expect(loginWithBlueskyPassword('test.bsky.social', 'wrong')).rejects.toThrow()
+      const { loginWithPassword } = useAuthStore.getState()
+      await expect(loginWithPassword('test.bsky.social', 'wrong')).rejects.toThrow()
 
       const state = useAuthStore.getState()
       expect(state.error).toBe('Invalid credentials')
-      expect(state.isBlueskyLoggedIn).toBe(false)
+      expect(state.isLoggedIn).toBe(false)
     })
   })
 
@@ -178,8 +200,8 @@ describe('AuthStore', () => {
     it('should clear all auth state', async () => {
       // Set up logged in state
       useAuthStore.setState({
-        blueskyProfile: { did: 'did:plc:test', handle: 'test.bsky.social' },
-        isBlueskyLoggedIn: true,
+        profile: { id: 'did:plc:test', handle: 'test.bsky.social' },
+        isLoggedIn: true,
         isXMTPConnected: true,
         xmtpAddress: '0xtest',
         xmtpInboxId: 'inbox-1'
@@ -189,8 +211,8 @@ describe('AuthStore', () => {
       await logout()
 
       const state = useAuthStore.getState()
-      expect(state.blueskyProfile).toBeNull()
-      expect(state.isBlueskyLoggedIn).toBe(false)
+      expect(state.profile).toBeNull()
+      expect(state.isLoggedIn).toBe(false)
       expect(state.isXMTPConnected).toBe(false)
       expect(state.xmtpAddress).toBeNull()
       expect(state.xmtpInboxId).toBeNull()

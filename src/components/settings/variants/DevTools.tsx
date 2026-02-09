@@ -2,8 +2,7 @@ import { useState, useEffect } from 'react'
 import { useSettings } from '../context/SettingsContext'
 import { useAuthStore, useOnboardingStore } from '../../../stores/authStore'
 import { useUpdaterStore } from '../../../stores/updaterStore'
-import { blueskyService } from '../../../services/bluesky'
-import { identityService } from '../../../services/identity'
+import { provider } from '../../../provider'
 import { xmtpService } from '../../../services/xmtp'
 import { clearPrivateKey } from '../../../services/signer'
 import type { BuildMode } from '../../../types'
@@ -19,7 +18,7 @@ function truncateId(id: string, chars = 8): string {
  */
 export function DevTools() {
   const { actions, meta } = useSettings()
-  const { blueskyProfile, xmtpInboxId, identityMismatch, signatureInvalid, publishedInboxId } = meta
+  const { profile, xmtpInboxId, identityMismatch, signatureInvalid, publishedInboxId } = meta
 
   const [buildMode, setBuildMode] = useState<BuildMode | null>(null)
   const [showDevTools, setShowDevTools] = useState(false)
@@ -31,8 +30,8 @@ export function DevTools() {
   const { getPhase, setPhase: setOnboardingPhase } = useOnboardingStore()
   const { checkIdentityStatus, revokeOtherInstallations: revokeOtherInstallationsWithResign } = useAuthStore()
 
-  const hasWriteAccess = blueskyService.hasRepoWriteAccess()
-  const onboardingPhase = blueskyProfile?.did ? getPhase(blueskyProfile.did) : { phase: 'fresh' as const }
+  const hasWriteAccess = provider.canPublishIdentity?.() ?? false
+  const onboardingPhase = profile?.id ? getPhase(profile.id) : { phase: 'fresh' as const }
 
   // Fetch build mode from main process
   useEffect(() => {
@@ -46,14 +45,14 @@ export function DevTools() {
   // Note: Must be called before early returns to maintain consistent hook order
   useEffect(() => {
     if (buildMode === null || buildMode === 'production') return
-    if (!blueskyProfile?.did || !showDevTools) return
+    if (!profile?.id || !showDevTools) return
 
-    identityService.lookupInboxForDid(blueskyProfile.did)
+    provider.lookupInboxForIdentity(profile.id)
       .then(result => {
         setAtprotoRecord(result.found ? { inboxId: result.inboxId, signature: result.verificationSignature } : null)
       })
       .catch(() => setAtprotoRecord(null))
-  }, [blueskyProfile?.did, showDevTools, buildMode])
+  }, [profile?.id, showDevTools, buildMode])
 
   // Fetch installation count when expanded
   useEffect(() => {
@@ -77,10 +76,10 @@ export function DevTools() {
   if (!isVisible) return null
 
   const refreshAtprotoRecord = async () => {
-    if (!blueskyProfile?.did) return
+    if (!profile?.id) return
     setAtprotoRecord('loading')
     try {
-      const result = await identityService.lookupInboxForDid(blueskyProfile.did)
+      const result = await provider.lookupInboxForIdentity(profile.id)
       setAtprotoRecord(result.found ? { inboxId: result.inboxId, signature: result.verificationSignature } : null)
     } catch {
       setAtprotoRecord(null)
@@ -134,12 +133,12 @@ export function DevTools() {
   }
 
   const deleteLocalKey = async () => {
-    if (!blueskyProfile?.did) return
+    if (!profile?.id) return
     if (!confirm('Delete local private key? You will need to restart the app and this will create a new inbox.')) return
 
     setIsWorking(true)
     try {
-      await clearPrivateKey(blueskyProfile.did)
+      await clearPrivateKey(profile.id)
       actions.setSuccess('Local key deleted. Restart to create new inbox.')
     } catch (err) {
       actions.setError(err instanceof Error ? err.message : 'Failed to delete key')
@@ -149,12 +148,11 @@ export function DevTools() {
   }
 
   const deleteAtprotoRecord = async () => {
-    if (!confirm('Delete your org.xmtp.inbox record from Bluesky? This will make you appear as "not on chat" to others.')) return
+    if (!confirm('Delete your inbox binding record? This will make you appear as "not on chat" to others.')) return
 
     setIsWorking(true)
     try {
-      const agent = blueskyService.getAgent()
-      await identityService.deleteIdentityFromATProto(agent)
+      await provider.deleteInboxBinding()
       setAtprotoRecord(null)
       await checkIdentityStatus()
       actions.setSuccess('Record deleted')
@@ -171,10 +169,9 @@ export function DevTools() {
 
     setIsWorking(true)
     try {
-      const agent = blueskyService.getAgent()
       // Publish with correct inbox ID but garbage signature
       const junkSignature = btoa('this-is-an-invalid-signature-for-testing-' + Date.now())
-      await identityService.publishIdentityToATProto(agent, xmtpInboxId, junkSignature)
+      await provider.publishInboxBinding(xmtpInboxId, junkSignature)
       await refreshAtprotoRecord()
       await checkIdentityStatus()
       actions.setSuccess('Published bad signature')
@@ -190,11 +187,10 @@ export function DevTools() {
 
     setIsWorking(true)
     try {
-      const agent = blueskyService.getAgent()
       // Publish with fake inbox ID and fake signature
       const fakeInboxId = 'fake' + Date.now().toString(16) + 'abcdef1234567890'
       const junkSignature = btoa('fake-signature-' + Date.now())
-      await identityService.publishIdentityToATProto(agent, fakeInboxId, junkSignature)
+      await provider.publishInboxBinding(fakeInboxId, junkSignature)
       await refreshAtprotoRecord()
       await checkIdentityStatus()
       actions.setSuccess('Published wrong inbox')
@@ -228,7 +224,7 @@ export function DevTools() {
           <div className="px-2 py-1.5 bg-[var(--color-surface-secondary)] rounded-lg font-mono text-[10px] space-y-0.5">
             <div className="flex justify-between">
               <span className="text-[var(--color-text-tertiary)]">DID:</span>
-              <span className="text-[var(--color-text-primary)] truncate max-w-[140px]">{blueskyProfile?.did || 'none'}</span>
+              <span className="text-[var(--color-text-primary)] truncate max-w-[140px]">{profile?.id || 'none'}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-[var(--color-text-tertiary)]">Local Inbox:</span>
@@ -335,48 +331,48 @@ export function DevTools() {
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => {
-                    if (blueskyProfile?.did) {
-                      setOnboardingPhase(blueskyProfile.did, { phase: 'fresh' })
+                    if (profile?.id) {
+                      setOnboardingPhase(profile.id, { phase: 'fresh' })
                       actions.setSuccess('Set to fresh')
                     }
                   }}
-                  disabled={!blueskyProfile?.did}
+                  disabled={!profile?.id}
                   className="h-8 text-[11px] font-medium bg-[var(--color-surface-secondary)] text-[var(--color-text-primary)] hover:brightness-95 rounded-lg transition-all disabled:opacity-50"
                 >
                   fresh
                 </button>
                 <button
                   onClick={() => {
-                    if (blueskyProfile?.did) {
-                      setOnboardingPhase(blueskyProfile.did, { phase: 'restore-skipped' })
+                    if (profile?.id) {
+                      setOnboardingPhase(profile.id, { phase: 'restore-skipped' })
                       actions.setSuccess('Set to restore-skipped (shows backup banner)')
                     }
                   }}
-                  disabled={!blueskyProfile?.did}
+                  disabled={!profile?.id}
                   className="h-8 text-[11px] font-medium bg-[var(--color-bsky-500)]/15 text-[var(--color-bsky-600)] hover:brightness-95 rounded-lg transition-all disabled:opacity-50"
                 >
                   restore-skipped
                 </button>
                 <button
                   onClick={() => {
-                    if (blueskyProfile?.did) {
-                      setOnboardingPhase(blueskyProfile.did, { phase: 'restored' })
+                    if (profile?.id) {
+                      setOnboardingPhase(profile.id, { phase: 'restored' })
                       actions.setSuccess('Set to restored')
                     }
                   }}
-                  disabled={!blueskyProfile?.did}
+                  disabled={!profile?.id}
                   className="h-8 text-[11px] font-medium bg-[var(--color-surface-secondary)] text-[var(--color-text-primary)] hover:brightness-95 rounded-lg transition-all disabled:opacity-50"
                 >
                   restored
                 </button>
                 <button
                   onClick={() => {
-                    if (blueskyProfile?.did) {
-                      setOnboardingPhase(blueskyProfile.did, { phase: 'backup-completed' })
+                    if (profile?.id) {
+                      setOnboardingPhase(profile.id, { phase: 'backup-completed' })
                       actions.setSuccess('Set to backup-completed')
                     }
                   }}
-                  disabled={!blueskyProfile?.did}
+                  disabled={!profile?.id}
                   className="h-8 text-[11px] font-medium bg-[var(--color-success-light)] text-[var(--color-success)] hover:brightness-95 rounded-lg transition-all disabled:opacity-50"
                 >
                   backup-completed

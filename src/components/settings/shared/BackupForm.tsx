@@ -30,7 +30,7 @@ export function BackupForm() {
   const passwordsMatch = exportPassword === exportPasswordConfirm && exportPasswordConfirm.length > 0
 
   const handleExportKey = async () => {
-    if (!meta.blueskyProfile?.did) return
+    if (!meta.profile?.id) return
 
     if (exportPassword.length < 8) {
       actions.setError('Password must be at least 8 characters')
@@ -44,7 +44,7 @@ export function BackupForm() {
     setIsExporting(true)
     actions.setError(null)
     try {
-      const key = await exportPrivateKey(meta.blueskyProfile.did)
+      const key = await exportPrivateKey(meta.profile.id)
       if (key) {
         const encrypted = await encryptWithPassword(key, exportPassword)
         setExportPassword('')
@@ -53,7 +53,7 @@ export function BackupForm() {
         const backup = {
           version: 1,
           type: 'xmtp-identity-backup',
-          handle: meta.blueskyProfile.handle,
+          handle: meta.profile.handle,
           createdAt: new Date().toISOString(),
           encryptedKey: encrypted
         }
@@ -62,7 +62,7 @@ export function BackupForm() {
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
-        a.download = `xmtp-backup-${meta.blueskyProfile.handle.replace(/\./g, '-')}.json`
+        a.download = `xmtp-backup-${meta.profile.handle.replace(/\./g, '-')}.json`
         document.body.appendChild(a)
         a.click()
         document.body.removeChild(a)
@@ -71,7 +71,7 @@ export function BackupForm() {
         setExportComplete(true)
         actions.setSuccess('Backup downloaded')
         // Mark onboarding phase as completed
-        setPhase(meta.blueskyProfile.did, { phase: 'backup-completed' })
+        setPhase(meta.profile.id, { phase: 'backup-completed' })
       } else {
         actions.setError('No key found for this account')
       }

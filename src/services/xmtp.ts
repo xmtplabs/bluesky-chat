@@ -1101,7 +1101,7 @@ export type VerifyInboxOwnershipResult = { verified: true } | { verified: false;
 
 /**
  * Verify that a signature was created by an installation key belonging to the given inbox.
- * Used to verify the cryptographic binding between a Bluesky DID and XMTP inbox.
+ * Used to verify the cryptographic binding between an identity ID and XMTP inbox.
  * Uses static verification - no client instance required.
  */
 export async function verifyInboxOwnership(

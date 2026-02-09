@@ -48,7 +48,7 @@ export function UserList() {
       <div className="p-2">
         <div className="space-y-0.5">
           {displayList.map((user) => (
-            <UserListItem key={user.did} user={user} />
+            <UserListItem key={user.id} user={user} />
           ))}
         </div>
       </div>

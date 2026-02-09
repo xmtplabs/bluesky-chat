@@ -1,9 +1,10 @@
 import { useNewConversation, type XmtpUserStatus } from '../context/NewConversationContext'
 import { Avatar } from '../../../shared/Avatar'
-import type { BlueskyProfile } from '../../../../types'
+import type { UserProfile } from '../../../../types'
+import { formatHandle } from '../../../../provider'
 
 interface UserListItemProps {
-  user: BlueskyProfile
+  user: UserProfile
 }
 
 /**
@@ -13,8 +14,8 @@ export function UserListItem({ user }: UserListItemProps) {
   const { state, actions } = useNewConversation()
   const { mode, selectedUsers, xmtpStatus } = state
 
-  const isSelected = selectedUsers.some((u) => u.did === user.did)
-  const status = xmtpStatus.get(user.did)
+  const isSelected = selectedUsers.some((u) => u.id === user.id)
+  const status = xmtpStatus.get(user.id)
   const canMessage = status === 'verified'
   const isChecking = status === 'checking' || status === undefined
 
@@ -36,7 +37,7 @@ export function UserListItem({ user }: UserListItemProps) {
           {user.displayName || user.handle}
         </p>
         <p className="text-[12px] text-[var(--color-text-secondary)] truncate">
-          @{user.handle}
+          {formatHandle(user.handle)}
         </p>
       </div>
 

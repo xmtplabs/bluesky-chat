@@ -9,8 +9,12 @@
  * - Persistent retry queue for failed registrations
  */
 
-// Backend URL - can be overridden via environment variable
-const BACKEND_URL = import.meta.env.VITE_MAPPING_BACKEND_URL ?? 'https://bluesky-chat-mapping-service.xmtp.workers.dev'
+import { config } from '../provider'
+
+// Backend URL - env var > provider config. Empty = disabled (e.g. Nostr uses kind 0 directly).
+const BACKEND_URL = import.meta.env.VITE_MAPPING_BACKEND_URL
+  || config.mappingServiceUrl
+  || ''
 
 // Circuit breaker configuration
 const CIRCUIT_BREAKER_THRESHOLD = 5 // Open after 5 consecutive failures
@@ -26,7 +30,7 @@ const PENDING_REGISTRATIONS_KEY = 'pending-mapping-registrations'
 const RETRY_INTERVAL_MS = 30_000 // Retry pending registrations every 30s
 
 interface LookupResponse {
-  did: string
+  id: string
   inboxId: string
 }
 
@@ -36,7 +40,7 @@ interface BulkResponse {
 }
 
 interface RegisterRequest {
-  did: string
+  id: string
 }
 
 type CircuitState = 'closed' | 'open' | 'half-open'
@@ -106,7 +110,7 @@ class MappingBackendClient {
     try {
       console.log(`[MappingBackend] Retrying ${this.pendingRegistrations.size} pending registrations`)
       for (const did of [...this.pendingRegistrations]) {
-        const success = await this.doRegister({ did })
+        const success = await this.doRegister({ id: did })
         if (success) {
           this.pendingRegistrations.delete(did)
           this.savePendingRegistrations()
@@ -186,7 +190,7 @@ class MappingBackendClient {
     }
 
     // Create new request
-    const request = this.doBulkLookup('by-did', dids)
+    const request = this.doBulkLookup('by-id', dids)
     this.pendingBulkRequests.set(cacheKey, request)
 
     try {
@@ -231,13 +235,15 @@ class MappingBackendClient {
    * Failed registrations are persisted and retried automatically.
    */
   async registerMapping(params: RegisterRequest): Promise<boolean> {
+    if (!BACKEND_URL) return true // No backend configured — nothing to register
+
     const success = await this.doRegister(params)
     if (success) {
-      if (this.pendingRegistrations.delete(params.did)) {
+      if (this.pendingRegistrations.delete(params.id)) {
         this.savePendingRegistrations()
       }
     } else {
-      this.pendingRegistrations.add(params.did)
+      this.pendingRegistrations.add(params.id)
       this.savePendingRegistrations()
     }
     return success
@@ -252,7 +258,7 @@ class MappingBackendClient {
       const response = await this.fetchWithRetry(`${BACKEND_URL}/v1/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(params)
+        body: JSON.stringify({ id: params.id })
       })
 
       if (response.ok) {
@@ -301,12 +307,13 @@ class MappingBackendClient {
 
     try {
       const response = await this.fetchWithRetry(
-        `${BACKEND_URL}/v1/lookup/did/${encodeURIComponent(did)}`
+        `${BACKEND_URL}/v1/lookup/id/${encodeURIComponent(did)}`
       )
 
       if (response.ok) {
         this.recordSuccess()
-        return await response.json() as LookupResponse
+        const data = await response.json() as { id: string; inboxId: string }
+        return { id: data.id, inboxId: data.inboxId }
       }
 
       if (response.status === 404) {
@@ -335,7 +342,8 @@ class MappingBackendClient {
 
       if (response.ok) {
         this.recordSuccess()
-        return await response.json() as LookupResponse
+        const data = await response.json() as { id: string; inboxId: string }
+        return { id: data.id, inboxId: data.inboxId }
       }
 
       if (response.status === 404) {
@@ -353,7 +361,7 @@ class MappingBackendClient {
   }
 
   private async doBulkLookup(
-    type: 'by-did' | 'by-inbox',
+    type: 'by-id' | 'by-inbox',
     identifiers: string[]
   ): Promise<BulkResponse> {
     if (!this.canMakeRequest()) {
@@ -369,7 +377,11 @@ class MappingBackendClient {
 
       if (response.ok) {
         this.recordSuccess()
-        return await response.json() as BulkResponse
+        const data = await response.json() as { mappings: { id: string; inboxId: string }[]; notFound: string[] }
+        return {
+          mappings: data.mappings.map((m) => ({ id: m.id, inboxId: m.inboxId })),
+          notFound: data.notFound
+        }
       }
 
       this.recordFailure()
@@ -425,6 +437,8 @@ class MappingBackendClient {
   }
 
   private canMakeRequest(): boolean {
+    if (!BACKEND_URL) return false
+
     this.checkCircuitState()
 
     if (this.circuitState === 'open') {

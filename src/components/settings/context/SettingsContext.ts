@@ -1,6 +1,6 @@
 import { createSafeContext } from '../../../lib/context/createSafeContext'
 import type { ContextValue } from '../../../lib/context/types'
-import type { BlueskyProfile } from '../../../types'
+import type { UserProfile } from '../../../types'
 
 export interface SettingsState {
   error: string | null
@@ -23,7 +23,7 @@ export interface SettingsActions {
 }
 
 export interface SettingsMeta {
-  blueskyProfile: BlueskyProfile | null
+  profile: UserProfile | null
   xmtpInboxId: string | null
   identityMismatch: boolean
   signatureInvalid: boolean

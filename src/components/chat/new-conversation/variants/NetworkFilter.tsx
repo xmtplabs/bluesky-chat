@@ -1,14 +1,16 @@
 import { useNewConversation } from '../context/NewConversationContext'
+import { config } from '../../../../provider'
 
 /**
  * Filter toggle between Following and Followers lists.
- * Hidden when search is active.
+ * Hidden when search is active or when the provider doesn't support social graph.
  */
 export function NetworkFilter() {
   const { state, actions, meta } = useNewConversation()
   const { listMode, searchQuery } = state
   const { followers, following } = meta
 
+  if (!config.supportsFollowers && !config.supportsFollowing) return null
   if (searchQuery.trim()) return null
 
   return (

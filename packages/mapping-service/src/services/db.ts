@@ -3,17 +3,17 @@ import type { Mapping, MappingRow } from '../types'
 
 function rowToMapping(row: MappingRow): Mapping {
   return {
-    did: row.did,
+    identityId: row.identity_id,
     inboxId: row.inbox_id,
     signature: row.signature,
     createdAt: row.created_at
   }
 }
 
-export async function getMappingByDid(db: D1Database, did: string): Promise<Mapping | null> {
+export async function getMappingByIdentityId(db: D1Database, identityId: string): Promise<Mapping | null> {
   const row = await db
-    .prepare('SELECT * FROM mappings WHERE did = ?')
-    .bind(did)
+    .prepare('SELECT * FROM mappings WHERE identity_id = ?')
+    .bind(identityId)
     .first<MappingRow>()
 
   return row ? rowToMapping(row) : null
@@ -28,13 +28,13 @@ export async function getMappingByInboxId(db: D1Database, inboxId: string): Prom
   return row ? rowToMapping(row) : null
 }
 
-export async function getMappingsByDids(db: D1Database, dids: string[]): Promise<Mapping[]> {
-  if (dids.length === 0) return []
+export async function getMappingsByIdentityIds(db: D1Database, identityIds: string[]): Promise<Mapping[]> {
+  if (identityIds.length === 0) return []
 
-  const placeholders = dids.map(() => '?').join(', ')
+  const placeholders = identityIds.map(() => '?').join(', ')
   const result = await db
-    .prepare(`SELECT * FROM mappings WHERE did IN (${placeholders})`)
-    .bind(...dids)
+    .prepare(`SELECT * FROM mappings WHERE identity_id IN (${placeholders})`)
+    .bind(...identityIds)
     .all<MappingRow>()
 
   return (result.results ?? []).map(rowToMapping)
@@ -55,8 +55,8 @@ export async function getMappingsByInboxIds(db: D1Database, inboxIds: string[]):
 /**
  * Upsert a mapping.
  *
- * This is a cache - ATProto/Jetstream is the source of truth.
- * If an inbox_id moves from one DID to another, we delete the old mapping
+ * This is a cache - the identity provider's source is the source of truth.
+ * If an inbox_id moves from one identity to another, we delete the old mapping
  * and insert the new one.
  */
 export async function upsertMapping(
@@ -66,23 +66,22 @@ export async function upsertMapping(
   const now = Date.now()
   const createdAt = mapping.createdAt ?? now
 
-  // If this inbox_id was previously claimed by a different DID, remove it
-  // (This handles legitimate reassignment - ATProto is the authority)
+  // If this inbox_id was previously claimed by a different identity, remove it
   const existingByInbox = await getMappingByInboxId(db, mapping.inboxId)
-  if (existingByInbox && existingByInbox.did !== mapping.did) {
-    await deleteMapping(db, existingByInbox.did)
+  if (existingByInbox && existingByInbox.identityId !== mapping.identityId) {
+    await deleteMapping(db, existingByInbox.identityId)
   }
 
   await db
     .prepare(
-      `INSERT INTO mappings (did, inbox_id, signature, created_at)
+      `INSERT INTO mappings (identity_id, inbox_id, signature, created_at)
        VALUES (?, ?, ?, ?)
-       ON CONFLICT (did) DO UPDATE SET
+       ON CONFLICT (identity_id) DO UPDATE SET
          inbox_id = excluded.inbox_id,
          signature = excluded.signature`
     )
     .bind(
-      mapping.did,
+      mapping.identityId,
       mapping.inboxId,
       mapping.signature,
       createdAt
@@ -90,8 +89,8 @@ export async function upsertMapping(
     .run()
 }
 
-export async function deleteMapping(db: D1Database, did: string): Promise<void> {
-  await db.prepare('DELETE FROM mappings WHERE did = ?').bind(did).run()
+export async function deleteMapping(db: D1Database, identityId: string): Promise<void> {
+  await db.prepare('DELETE FROM mappings WHERE identity_id = ?').bind(identityId).run()
 }
 
 export async function getTotalMappings(db: D1Database): Promise<number> {

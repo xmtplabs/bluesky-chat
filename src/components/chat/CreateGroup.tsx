@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
-import { useBluesky } from '../../hooks/useBluesky'
+import { useIdentity } from '../../hooks/useIdentity'
 import { useXMTP } from '../../hooks/useXMTP'
 import { resolveUsersToInboxIds } from '../../utils/resolveUsers'
 import { getErrorMessage } from '../../utils/errors'
-import type { BlueskyProfile } from '../../types'
+import type { UserProfile } from '../../types'
+import { formatHandle } from '../../provider'
 import { Avatar } from '../shared/Avatar'
 
 interface CreateGroupProps {
@@ -13,7 +14,7 @@ interface CreateGroupProps {
 export function CreateGroup({ onClose }: CreateGroupProps) {
   const [groupName, setGroupName] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
-  const [selectedUsers, setSelectedUsers] = useState<BlueskyProfile[]>([])
+  const [selectedUsers, setSelectedUsers] = useState<UserProfile[]>([])
   const [error, setError] = useState<string | null>(null)
   const [isCreating, setIsCreating] = useState(false)
 
@@ -24,7 +25,7 @@ export function CreateGroup({ onClose }: CreateGroupProps) {
     loadFollowers,
     isSearching,
     clearSearch
-  } = useBluesky()
+  } = useIdentity()
 
   const { createGroup, canMessage } = useXMTP()
 
@@ -44,11 +45,11 @@ export function CreateGroup({ onClose }: CreateGroupProps) {
     return () => clearTimeout(timer)
   }, [searchQuery])
 
-  const handleToggleUser = (user: BlueskyProfile) => {
+  const handleToggleUser = (user: UserProfile) => {
     setSelectedUsers((prev) => {
-      const exists = prev.some((u) => u.did === user.did)
+      const exists = prev.some((u) => u.id === user.id)
       if (exists) {
-        return prev.filter((u) => u.did !== user.did)
+        return prev.filter((u) => u.id !== user.id)
       }
       if (prev.length >= 250) {
         setError('Maximum 250 members allowed')
@@ -60,7 +61,7 @@ export function CreateGroup({ onClose }: CreateGroupProps) {
   }
 
   const handleRemoveUser = (did: string) => {
-    setSelectedUsers((prev) => prev.filter((u) => u.did !== did))
+    setSelectedUsers((prev) => prev.filter((u) => u.id !== did))
   }
 
   const handleCreateGroup = async () => {
@@ -138,7 +139,7 @@ export function CreateGroup({ onClose }: CreateGroupProps) {
             <div className="flex flex-wrap gap-2">
               {selectedUsers.map((user) => (
                 <div
-                  key={user.did}
+                  key={user.id}
                   className="flex items-center gap-2 pl-1 pr-2 py-1 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-full"
                 >
                   <Avatar
@@ -150,7 +151,7 @@ export function CreateGroup({ onClose }: CreateGroupProps) {
                     {user.displayName || user.handle}
                   </span>
                   <button
-                    onClick={() => handleRemoveUser(user.did)}
+                    onClick={() => handleRemoveUser(user.id)}
                     className="p-0.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-surface-hover)] rounded-full transition-colors"
                   >
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -222,11 +223,11 @@ export function CreateGroup({ onClose }: CreateGroupProps) {
               )}
               <div className="space-y-0.5">
                 {displayList.map((user) => {
-                  const isSelected = selectedUsers.some((u) => u.did === user.did)
+                  const isSelected = selectedUsers.some((u) => u.id === user.id)
 
                   return (
                     <button
-                      key={user.did}
+                      key={user.id}
                       onClick={() => handleToggleUser(user)}
                       className={`w-full p-3 flex items-center gap-3 rounded-xl transition-all duration-200 text-left ${
                         isSelected
@@ -244,7 +245,7 @@ export function CreateGroup({ onClose }: CreateGroupProps) {
                           {user.displayName || user.handle}
                         </p>
                         <p className="text-[13px] text-[var(--color-text-secondary)] truncate">
-                          @{user.handle}
+                          {formatHandle(user.handle)}
                         </p>
                       </div>
                       <div

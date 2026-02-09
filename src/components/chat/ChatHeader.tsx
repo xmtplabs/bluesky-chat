@@ -16,8 +16,8 @@ export function ChatHeader() {
   if (!conversation) return null
 
   const handleProfileClick = () => {
-    if (conversation.peerProfile?.did) {
-      openUserProfile(conversation.peerProfile.did)
+    if (conversation.peerProfile?.id) {
+      openUserProfile(conversation.peerProfile.id)
     }
   }
 

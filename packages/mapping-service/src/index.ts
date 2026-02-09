@@ -8,8 +8,10 @@ import bulk from './routes/bulk'
 import register from './routes/register'
 import admin from './routes/admin'
 
-// Re-export Durable Object
-export { JetstreamIndexer } from './indexer/jetstream'
+// Re-export Durable Object indexers
+export { BlueskyIndexer } from './indexers/bluesky'
+// Backwards-compatible alias for existing wrangler.toml Durable Object binding
+export { BlueskyIndexer as JetstreamIndexer } from './indexers/bluesky'
 
 const app = new Hono<{ Bindings: Env }>()
 
@@ -36,20 +38,23 @@ app.get('/health', async (c) => {
   try {
     const totalMappings = await getTotalMappings(c.env.DB)
 
-    // Check indexer status
+    // Check indexer status (only if configured)
     let indexerConnected = false
-    try {
-      const indexerId = c.env.JETSTREAM_INDEXER.idFromName('singleton')
-      const indexer = c.env.JETSTREAM_INDEXER.get(indexerId)
-      const statusResponse = await indexer.fetch(new Request('http://internal/status'))
-      const status = (await statusResponse.json()) as { connected: boolean }
-      indexerConnected = status.connected
-    } catch {
-      // Indexer may not be initialized yet
+    const hasIndexer = !!c.env.JETSTREAM_INDEXER
+    if (hasIndexer) {
+      try {
+        const indexerId = c.env.JETSTREAM_INDEXER!.idFromName('singleton')
+        const indexer = c.env.JETSTREAM_INDEXER!.get(indexerId)
+        const statusResponse = await indexer.fetch(new Request('http://internal/status'))
+        const status = (await statusResponse.json()) as { connected: boolean }
+        indexerConnected = status.connected
+      } catch {
+        // Indexer may not be initialized yet
+      }
     }
 
     const response: HealthResponse = {
-      status: indexerConnected ? 'ok' : 'degraded',
+      status: !hasIndexer || indexerConnected ? 'ok' : 'degraded',
       timestamp: new Date().toISOString(),
       stats: {
         totalMappings,
@@ -79,12 +84,13 @@ app.get('/health', async (c) => {
 // Root endpoint with API info
 app.get('/', (c) => {
   return c.json({
-    service: 'bluesky-chat-mapping-service',
+    service: 'mapping-service',
     version: '1.0.0',
+    provider: c.env.IDENTITY_PROVIDER ?? 'bluesky',
     endpoints: {
       lookup: {
-        'GET /v1/lookup/did/:did': 'Forward lookup: DID → InboxId',
-        'GET /v1/lookup/inbox/:inboxId': 'Reverse lookup: InboxId → DID'
+        'GET /v1/lookup/id/:id': 'Forward lookup: identity → InboxId',
+        'GET /v1/lookup/inbox/:inboxId': 'Reverse lookup: InboxId → identity'
       },
       bulk: {
         'POST /v1/bulk': 'Bulk lookup (up to 100 identifiers)'

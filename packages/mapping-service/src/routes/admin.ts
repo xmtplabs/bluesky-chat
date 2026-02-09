@@ -2,8 +2,7 @@ import { timingSafeEqual } from 'node:crypto'
 import { Hono } from 'hono'
 import type { Env } from '../types'
 import { upsertMapping, getTotalMappings } from '../services/db'
-import { verifyInboxOwnership, verifyFromATProto } from '../services/verify'
-import { isValidDid } from '../services/bluesky'
+import { getIdentityProvider } from '../services/identity'
 
 const admin = new Hono<{ Bindings: Env }>()
 
@@ -51,23 +50,20 @@ admin.use('*', async (c, next) => {
   await next()
 })
 
-// Maximum DIDs allowed per backfill request
+// Maximum identities allowed per backfill request
 const MAX_BACKFILL_BATCH = 100
 
 /**
  * POST /v1/admin/backfill
- * Backfill mappings for a list of DIDs by fetching from ATProto.
+ * Backfill mappings for a list of identities by fetching from the source of truth.
  *
  * Request body:
  * {
- *   "dids": ["did:plc:a", "did:plc:b", ...]
+ *   "ids": ["did:plc:a", "npub1...", ...]
  * }
- *
- * This is useful for initial deployment to populate the cache with
- * existing mappings that predate the Jetstream indexer.
  */
 admin.post('/backfill', async (c) => {
-  let body: { dids: string[] }
+  let body: { ids: string[] }
 
   try {
     body = await c.req.json()
@@ -75,59 +71,47 @@ admin.post('/backfill', async (c) => {
     return c.json({ error: 'Invalid JSON body' }, 400)
   }
 
-  if (!Array.isArray(body.dids) || body.dids.length === 0) {
-    return c.json({ error: 'dids must be a non-empty array' }, 400)
+  if (!body || !Array.isArray(body.ids) || body.ids.length === 0) {
+    return c.json({ error: 'ids must be a non-empty array' }, 400)
   }
 
-  if (body.dids.length > MAX_BACKFILL_BATCH) {
+  if (body.ids.length > MAX_BACKFILL_BATCH) {
     return c.json(
-      { error: `Maximum ${MAX_BACKFILL_BATCH} DIDs per request` },
+      { error: `Maximum ${MAX_BACKFILL_BATCH} identities per request` },
       400
     )
   }
 
   const results = {
-    total: body.dids.length,
+    total: body.ids.length,
     indexed: 0,
     notFound: 0,
     failed: 0,
     errors: [] as string[]
   }
 
-  for (const did of body.dids) {
-    // Validate DID is a string and has valid format before making external calls
-    if (typeof did !== 'string' || !isValidDid(did)) {
+  const identityProvider = getIdentityProvider(c.env)
+
+  for (const id of body.ids) {
+    // Validate identity is a string and has valid format before making external calls
+    if (typeof id !== 'string' || !identityProvider.isValidIdentity(id)) {
       results.failed++
-      results.errors.push(`${String(did)}: invalid DID format`)
+      results.errors.push(`${String(id)}: invalid identity format`)
       continue
     }
 
     try {
-      // Fetch from ATProto
-      const record = await verifyFromATProto(did)
+      // Fetch from source of truth
+      const record = await identityProvider.verifyFromSource(id)
 
       if (!record) {
         results.notFound++
         continue
       }
 
-      // Verify the signature
-      const verifyResult = await verifyInboxOwnership(
-        record.inboxId,
-        did,
-        record.signature,
-        'production'
-      )
-
-      if (!verifyResult.verified) {
-        results.failed++
-        results.errors.push(`${did}: verification failed - ${verifyResult.error}`)
-        continue
-      }
-
       // Store in database
       await upsertMapping(c.env.DB, {
-        did,
+        identityId: id,
         inboxId: record.inboxId,
         signature: record.signature
       })
@@ -135,7 +119,7 @@ admin.post('/backfill', async (c) => {
       results.indexed++
     } catch (error) {
       results.failed++
-      results.errors.push(`${did}: ${error instanceof Error ? error.message : 'unknown error'}`)
+      results.errors.push(`${id}: ${error instanceof Error ? error.message : 'unknown error'}`)
     }
   }
 
@@ -151,22 +135,22 @@ admin.get('/stats', async (c) => {
 
   // Get recent mappings
   const recentResult = await c.env.DB
-    .prepare('SELECT did, created_at FROM mappings ORDER BY created_at DESC LIMIT 10')
-    .all<{ did: string; created_at: number }>()
+    .prepare('SELECT identity_id, created_at FROM mappings ORDER BY created_at DESC LIMIT 10')
+    .all<{ identity_id: string; created_at: number }>()
 
   // Get oldest mappings
   const oldestResult = await c.env.DB
-    .prepare('SELECT did, created_at FROM mappings ORDER BY created_at ASC LIMIT 5')
-    .all<{ did: string; created_at: number }>()
+    .prepare('SELECT identity_id, created_at FROM mappings ORDER BY created_at ASC LIMIT 5')
+    .all<{ identity_id: string; created_at: number }>()
 
   return c.json({
     totalMappings,
     recentMappings: (recentResult.results ?? []).map((r) => ({
-      did: r.did,
+      id: r.identity_id,
       createdAt: new Date(r.created_at).toISOString()
     })),
     oldestMappings: (oldestResult.results ?? []).map((r) => ({
-      did: r.did,
+      id: r.identity_id,
       createdAt: new Date(r.created_at).toISOString()
     }))
   })
@@ -177,6 +161,10 @@ admin.get('/stats', async (c) => {
  * Get the current status of the Jetstream indexer.
  */
 admin.get('/indexer/status', async (c) => {
+  if (!c.env.JETSTREAM_INDEXER) {
+    return c.json({ indexer: 'not-configured' })
+  }
+
   try {
     const indexerId = c.env.JETSTREAM_INDEXER.idFromName('singleton')
     const indexer = c.env.JETSTREAM_INDEXER.get(indexerId)
@@ -198,6 +186,10 @@ admin.get('/indexer/status', async (c) => {
  * Force the Jetstream indexer to reconnect.
  */
 admin.post('/indexer/reconnect', async (c) => {
+  if (!c.env.JETSTREAM_INDEXER) {
+    return c.json({ indexer: 'not-configured' })
+  }
+
   try {
     const indexerId = c.env.JETSTREAM_INDEXER.idFromName('singleton')
     const indexer = c.env.JETSTREAM_INDEXER.get(indexerId)

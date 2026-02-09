@@ -27,21 +27,14 @@ vi.mock('../services/xmtp', () => ({
   }
 }))
 
-vi.mock('../services/bluesky', () => ({
-  blueskyService: {
-    getProfile: vi.fn(),
-    getDid: vi.fn().mockReturnValue(undefined)
-  }
-}))
-
 vi.mock('../services/identity', () => ({
   identityService: {
     getAddressFromDid: vi.fn(),
-    getDidFromInboxId: vi.fn().mockReturnValue(undefined),
+    getIdFromInboxId: vi.fn().mockReturnValue(undefined),
     getCachedProfile: vi.fn().mockReturnValue(undefined),
     cacheProfile: vi.fn(),
     cacheMapping: vi.fn(),
-    bulkResolveInboxToDid: vi.fn().mockResolvedValue(new Map())
+    bulkResolveInboxToId: vi.fn().mockResolvedValue(new Map())
   }
 }))
 

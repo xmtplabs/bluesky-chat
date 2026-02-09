@@ -1,12 +1,10 @@
-import type { Agent, AtpAgent } from '@atproto/api'
-import type { IdentityMapping, BlueskyProfile, XmtpUserStatus } from '../types'
+import type { IdentityMapping, UserProfile, XmtpUserStatus } from '../types'
+import { provider } from '../provider'
 import { verifyInboxOwnership, type VerifyInboxOwnershipResult } from './xmtp'
 import { mappingBackend } from './mappingBackend'
 
 const IDENTITY_STORE_KEY = 'identity-mappings'
 const CACHED_MAPPINGS_KEY = 'jetstream-indexer-cache' // Local inbox↔DID mapping cache
-const ATPROTO_COLLECTION = 'org.xmtp.inbox'
-const ATPROTO_RKEY = 'self'
 
 // Status cache configuration
 const STATUS_CACHE_MAX_SIZE = 500
@@ -15,24 +13,12 @@ const VERIFIED_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours - re-verify periodically
 
 type StatusCacheEntry = { status: XmtpUserStatus; timestamp: number }
 
-/**
- * ATProto record structure for org.xmtp.inbox
- * Stores the cryptographic binding between Bluesky DID and XMTP inbox
- */
-interface ATProtoInboxRecord {
-  $type: 'org.xmtp.inbox'
-  id: string // XMTP inbox ID
-  verificationSignature: string // base64-encoded signature from signWithInstallationKey(did)
-  createdAt: string // ISO timestamp
-  [key: string]: unknown // Allow additional properties for ATProto compatibility
-}
-
 class IdentityService {
   private mappings: Map<string, IdentityMapping> = new Map()
-  private profileCache: Map<string, BlueskyProfile> = new Map()
+  private profileCache: Map<string, UserProfile> = new Map()
   // Reverse lookup: inboxId -> DID (single source of truth for all mappings)
   private inboxToDid: Map<string, string> = new Map()
-  private didToInbox: Map<string, string> = new Map()
+  private idToInbox: Map<string, string> = new Map()
   // Status cache for XMTP user status (verified/not-on-chat) with TTL
   private statusCache: Map<string, StatusCacheEntry> = new Map()
   // Track pending status checks to dedupe concurrent requests
@@ -47,12 +33,22 @@ class IdentityService {
     try {
       const stored = localStorage.getItem(IDENTITY_STORE_KEY)
       if (stored) {
-        const mappingsArray: IdentityMapping[] = JSON.parse(stored)
-        this.mappings = new Map(mappingsArray.map((m) => [m.blueskyDid, m]))
+        const raw = JSON.parse(stored)
+        // Migrate old field names (blueskyDid → identityId, blueskyHandle → identityHandle)
+        const mappingsArray = raw.map((m: Record<string, unknown>) => ({
+          identityId: m.identityId ?? m.blueskyDid,
+          identityHandle: m.identityHandle ?? m.blueskyHandle,
+          xmtpInboxId: m.xmtpInboxId,
+          verificationSignature: m.verificationSignature,
+          createdAt: m.createdAt,
+        })) as IdentityMapping[]
+        this.mappings = new Map(mappingsArray.map((m) => [m.identityId, m]))
         // Build reverse lookup
         for (const mapping of mappingsArray) {
-          this.inboxToDid.set(mapping.xmtpInboxId, mapping.blueskyDid)
+          this.inboxToDid.set(mapping.xmtpInboxId, mapping.identityId)
         }
+        // Save migrated format
+        await this.saveMappings()
       }
     } catch (error) {
       console.error('Failed to load identity mappings:', error)
@@ -77,8 +73,8 @@ class IdentityService {
         for (const [inboxId, did] of Object.entries(data.inboxToDid || {})) {
           this.inboxToDid.set(inboxId, did as string)
         }
-        for (const [did, inboxId] of Object.entries(data.didToInbox || {})) {
-          this.didToInbox.set(did, inboxId as string)
+        for (const [did, inboxId] of Object.entries(data.idToInbox || data.didToInbox || {})) {
+          this.idToInbox.set(did, inboxId as string)
         }
         console.log(`Loaded ${this.inboxToDid.size} cached mappings`)
       }
@@ -91,7 +87,7 @@ class IdentityService {
     try {
       const data = {
         inboxToDid: Object.fromEntries(this.inboxToDid),
-        didToInbox: Object.fromEntries(this.didToInbox)
+        idToInbox: Object.fromEntries(this.idToInbox)
       }
       localStorage.setItem(CACHED_MAPPINGS_KEY, JSON.stringify(data))
     } catch (error) {
@@ -99,103 +95,9 @@ class IdentityService {
     }
   }
 
-  /**
-   * Publish the XMTP inbox identity to ATProto PDS.
-   * Creates an org.xmtp.inbox record with the inbox ID and verification signature.
-   */
-  async publishIdentityToATProto(
-    agent: Agent | AtpAgent | null,
-    inboxId: string,
-    signature: string
-  ): Promise<void> {
-    if (!agent) {
-      throw new Error('ATProto agent not available')
-    }
-
-    const record: ATProtoInboxRecord = {
-      $type: ATPROTO_COLLECTION,
-      id: inboxId,
-      verificationSignature: signature,
-      createdAt: new Date().toISOString()
-    }
-
-    // Get the DID from the agent
-    let did: string | undefined
-    if ('did' in agent && agent.did) {
-      did = agent.did
-    } else if ('session' in agent && agent.session?.did) {
-      did = agent.session.did
-    }
-
-    if (!did) {
-      throw new Error('Could not determine DID from agent')
-    }
-
-    try {
-      // Use putRecord to create or update the record
-      await agent.com.atproto.repo.putRecord({
-        repo: did,
-        collection: ATPROTO_COLLECTION,
-        rkey: ATPROTO_RKEY,
-        record
-      })
-      console.log('Published org.xmtp.inbox record to ATProto PDS')
-    } catch (error) {
-      console.error('Failed to publish identity to ATProto:', error)
-      throw error
-    }
-  }
 
   /**
-   * Lookup the XMTP inbox record for a given DID from ATProto.
-   * Fetches the org.xmtp.inbox record from the user's PDS.
-   *
-   * Returns:
-   * - { found: true, inboxId, verificationSignature } on success
-   * - { found: false, notFound: true } when record doesn't exist (404)
-   * - { found: false, notFound: false } on network/other errors
-   */
-  async lookupInboxForDid(
-    did: string
-  ): Promise<
-    { found: true; inboxId: string; verificationSignature: string } | { found: false; notFound: boolean }
-  > {
-    try {
-      // Use public API to fetch the record
-      const response = await fetch(
-        `https://bsky.social/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(did)}&collection=${ATPROTO_COLLECTION}&rkey=${ATPROTO_RKEY}`
-      )
-
-      if (!response.ok) {
-        // ATProto returns 400 when collection doesn't exist in repo, 404 when record not found
-        if (response.status === 400 || response.status === 404) {
-          return { found: false, notFound: true }
-        }
-        console.error(`Failed to fetch record: ${response.status}`)
-        return { found: false, notFound: false }
-      }
-
-      const data = await response.json()
-      const record = data.value as ATProtoInboxRecord
-
-      if (!record.id || !record.verificationSignature) {
-        console.warn('Invalid org.xmtp.inbox record:', record)
-        return { found: false, notFound: true } // Treat invalid records as not found
-      }
-
-      return {
-        found: true,
-        inboxId: record.id,
-        verificationSignature: record.verificationSignature
-      }
-    } catch (error) {
-      console.error('Failed to lookup inbox for DID:', error)
-      return { found: false, notFound: false }
-    }
-  }
-
-  /**
-   * Verify the cryptographic binding between a Bluesky DID and XMTP inbox.
+   * Verify the cryptographic binding between an identity ID and XMTP inbox.
    * Uses Client.verifySignedWithPublicKey to verify the signature.
    */
   async verifyIdentityBinding(
@@ -206,63 +108,17 @@ class IdentityService {
     return verifyInboxOwnership(inboxId, did, signature)
   }
 
-  /**
-   * Delete the org.xmtp.inbox record from ATProto PDS.
-   * This removes the identity binding between the Bluesky DID and XMTP inbox.
-   */
-  async deleteIdentityFromATProto(agent: Agent | AtpAgent | null): Promise<void> {
-    if (!agent) {
-      throw new Error('ATProto agent not available')
-    }
-
-    // Get the DID from the agent
-    let did: string | undefined
-    if ('did' in agent && agent.did) {
-      did = agent.did
-    } else if ('session' in agent && agent.session?.did) {
-      did = agent.session.did
-    }
-
-    if (!did) {
-      throw new Error('Could not determine DID from agent')
-    }
-
-    try {
-      await agent.com.atproto.repo.deleteRecord({
-        repo: did,
-        collection: ATPROTO_COLLECTION,
-        rkey: ATPROTO_RKEY
-      })
-      console.log('Deleted org.xmtp.inbox record from ATProto PDS')
-
-      // Also clear from local cache
-      const mapping = this.mappings.get(did)
-      if (mapping) {
-        this.inboxToDid.delete(mapping.xmtpInboxId)
-      }
-      this.mappings.delete(did)
-      await this.saveMappings()
-    } catch (error) {
-      // Check if record doesn't exist
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      if (errorMessage.includes('RecordNotFound') || errorMessage.includes('could not find record')) {
-        console.log('No org.xmtp.inbox record found to delete')
-        return
-      }
-      throw error
-    }
-  }
 
   /**
-   * Resolve a Bluesky DID to an XMTP inbox ID.
+   * Resolve an identity ID to an XMTP inbox ID.
    * Uses a 3-tier fallback strategy:
    * 1. Local cache (instant, includes user's own identity)
    * 2. Backend (fast, pre-verified global cache)
    * 3. Direct ATProto lookup (ultimate source of truth)
    *
-   * Use getInboxIdFromDid() for synchronous cached lookups (display purposes).
+   * Use getInboxIdFromId() for synchronous cached lookups (display purposes).
    */
-  async resolveDidToInbox(did: string): Promise<string | null> {
+  async resolveIdToInbox(did: string): Promise<string | null> {
     // Tier 1: Check local caches first (instant)
     // User's own verified identity (instant, already verified at link time)
     const ownMapping = this.mappings.get(did)
@@ -270,7 +126,7 @@ class IdentityService {
       return ownMapping.xmtpInboxId
     }
     // Note: We intentionally do NOT short-circuit on local cache (didToInbox)
-    // here. That cache is for display purposes via getInboxIdFromDid(). For authoritative
+    // here. That cache is for display purposes via getInboxIdFromId(). For authoritative
     // lookups, we must verify through backend or ATProto.
 
     // Tier 2: Try backend service (fast, pre-verified)
@@ -290,12 +146,12 @@ class IdentityService {
 
     // Tier 3: Fetch and verify from ATProto (source of truth)
     // This is a fallback - if we're hitting this often, the backend may be behind
-    console.log(`[identity] ATProto fallback for DID lookup: ${did} (backend had no record)`)
-    const result = await this.lookupInboxForDid(did)
+    console.log(`[identity] Provider fallback for DID lookup: ${did} (backend had no record)`)
+    const result = await provider.lookupInboxForIdentity(did)
     if (!result.found) {
       // Only clear cache on explicit 404 (record deleted), not on network errors
       if (result.notFound) {
-        const staleInbox = this.didToInbox.get(did)
+        const staleInbox = this.idToInbox.get(did)
         if (staleInbox) {
           this.uncacheMapping(did)
         }
@@ -310,7 +166,7 @@ class IdentityService {
       console.warn(`[identity] Verification failed for ${did}: definitive=${verifyResult.definitive}`)
       // Only clear cache on definitive verification failures, not network errors
       if (verifyResult.definitive) {
-        const staleInbox = this.didToInbox.get(did)
+        const staleInbox = this.idToInbox.get(did)
         if (staleInbox) {
           this.uncacheMapping(did)
         }
@@ -324,7 +180,7 @@ class IdentityService {
     // Report to backend so it can index this mapping (fire-and-forget)
     // This helps the backend catch up on mappings Jetstream may have missed
     console.log(`[identity] Reporting discovered mapping to backend: ${did}`)
-    mappingBackend.registerMapping({ did }).then((success) => {
+    mappingBackend.registerMapping({ id: did }).then((success) => {
       console.log(`[identity] Backend registration result: ${success ? 'success' : 'failed'}`)
     }).catch(() => {
       // Non-critical - we already have the mapping locally
@@ -334,12 +190,12 @@ class IdentityService {
   }
 
   /**
-   * Resolve an XMTP inbox ID to a Bluesky DID.
+   * Resolve an XMTP inbox ID to an identity ID.
    * Uses a 2-tier fallback:
    * 1. Local cache (instant)
    * 2. Backend service (global cache)
    */
-  async resolveInboxToDid(inboxId: string): Promise<string | null> {
+  async resolveInboxToId(inboxId: string): Promise<string | null> {
     // Check local cache first
     const cached = this.inboxToDid.get(inboxId)
     if (cached) {
@@ -352,8 +208,8 @@ class IdentityService {
         const backendResult = await mappingBackend.lookupByInbox(inboxId)
         if (backendResult) {
           // Update local cache
-          this.cacheMapping(backendResult.inboxId, backendResult.did)
-          return backendResult.did
+          this.cacheMapping(backendResult.inboxId, backendResult.id)
+          return backendResult.id
         }
       } catch (error) {
         console.warn('Backend reverse lookup failed:', error)
@@ -368,7 +224,7 @@ class IdentityService {
    * More efficient than individual lookups for lists (e.g., conversation list).
    * Returns a map of DID -> inboxId for found mappings.
    */
-  async bulkResolveDidToInbox(dids: string[]): Promise<Map<string, string>> {
+  async bulkResolveIdToInbox(dids: string[]): Promise<Map<string, string>> {
     const results = new Map<string, string>()
     const uncachedDids: string[] = []
 
@@ -382,7 +238,7 @@ class IdentityService {
       }
 
       // Check cached mappings
-      const cachedInbox = this.didToInbox.get(did)
+      const cachedInbox = this.idToInbox.get(did)
       if (cachedInbox) {
         results.set(did, cachedInbox)
         continue
@@ -397,9 +253,9 @@ class IdentityService {
         const backendResults = await mappingBackend.bulkLookupByDid(uncachedDids)
 
         for (const mapping of backendResults.mappings) {
-          results.set(mapping.did, mapping.inboxId)
+          results.set(mapping.id, mapping.inboxId)
           // Update local cache
-          this.cacheMapping(mapping.inboxId, mapping.did)
+          this.cacheMapping(mapping.inboxId, mapping.id)
         }
       } catch (error) {
         console.warn('Backend bulk lookup failed:', error)
@@ -413,7 +269,7 @@ class IdentityService {
    * Bulk resolve multiple inbox IDs to DIDs.
    * Returns a map of inboxId -> DID for found mappings.
    */
-  async bulkResolveInboxToDid(inboxIds: string[]): Promise<Map<string, string>> {
+  async bulkResolveInboxToId(inboxIds: string[]): Promise<Map<string, string>> {
     const results = new Map<string, string>()
     const uncachedIds: string[] = []
 
@@ -433,9 +289,9 @@ class IdentityService {
         const backendResults = await mappingBackend.bulkLookupByInbox(uncachedIds)
 
         for (const mapping of backendResults.mappings) {
-          results.set(mapping.inboxId, mapping.did)
+          results.set(mapping.inboxId, mapping.id)
           // Update local cache
-          this.cacheMapping(mapping.inboxId, mapping.did)
+          this.cacheMapping(mapping.inboxId, mapping.id)
         }
       } catch (error) {
         console.warn('Backend bulk reverse lookup failed:', error)
@@ -445,53 +301,53 @@ class IdentityService {
     return results
   }
 
-  // Link a Bluesky DID to an XMTP inbox ID (local cache)
+  // Link an identity to an XMTP inbox ID (local cache)
   async linkIdentity(
-    blueskyDid: string,
-    blueskyHandle: string,
+    identityId: string,
+    identityHandle: string,
     xmtpInboxId: string,
     verificationSignature: string
   ): Promise<void> {
     const mapping: IdentityMapping = {
-      blueskyDid,
-      blueskyHandle,
+      identityId,
+      identityHandle,
       xmtpInboxId,
       verificationSignature,
       createdAt: Date.now()
     }
 
-    this.mappings.set(blueskyDid, mapping)
-    this.inboxToDid.set(xmtpInboxId, blueskyDid)
+    this.mappings.set(identityId, mapping)
+    this.inboxToDid.set(xmtpInboxId, identityId)
     await this.saveMappings()
   }
 
-  // Get XMTP inbox ID from Bluesky DID (synchronous cache lookup)
-  getInboxIdFromDid(blueskyDid: string): string | undefined {
+  // Get XMTP inbox ID from identity ID (synchronous cache lookup)
+  getInboxIdFromId(identityId: string): string | undefined {
     // Check local identity mappings first (own identity)
-    const localMapping = this.mappings.get(blueskyDid)?.xmtpInboxId
+    const localMapping = this.mappings.get(identityId)?.xmtpInboxId
     if (localMapping) return localMapping
     // Fall back to cached mappings (other users)
-    return this.didToInbox.get(blueskyDid)
+    return this.idToInbox.get(identityId)
   }
 
   /**
    * Resolve a DID to an inbox ID, checking the local cache first.
-   * Convenience wrapper over getInboxIdFromDid() + resolveDidToInbox().
+   * Convenience wrapper over getInboxIdFromId() + resolveIdToInbox().
    */
-  async resolveDidToInboxCached(did: string): Promise<string | undefined> {
-    return this.getInboxIdFromDid(did) || await this.resolveDidToInbox(did) || undefined
+  async resolveIdToInboxCached(did: string): Promise<string | undefined> {
+    return this.getInboxIdFromId(did) || await this.resolveIdToInbox(did) || undefined
   }
 
-  // Get Bluesky DID from XMTP inbox ID
-  getDidFromInboxId(inboxId: string): string | undefined {
+  // Get identity ID from XMTP inbox ID
+  getIdFromInboxId(inboxId: string): string | undefined {
     return this.inboxToDid.get(inboxId)
   }
 
-  // Get Bluesky handle from XMTP inbox ID
+  // Get handle from XMTP inbox ID
   getHandleFromInboxId(inboxId: string): string | undefined {
     const did = this.inboxToDid.get(inboxId)
     if (!did) return undefined
-    return this.mappings.get(did)?.blueskyHandle
+    return this.mappings.get(did)?.identityHandle
   }
 
   // Get full mapping by inbox ID
@@ -501,21 +357,21 @@ class IdentityService {
     return this.mappings.get(did)
   }
 
-  // Get full mapping by DID
-  getMappingByDid(blueskyDid: string): IdentityMapping | undefined {
-    return this.mappings.get(blueskyDid)
+  // Get full mapping by identity ID
+  getMappingById(identityId: string): IdentityMapping | undefined {
+    return this.mappings.get(identityId)
   }
 
   // Cache a profile for quick lookup
-  cacheProfile(profile: BlueskyProfile): void {
-    this.profileCache.set(profile.did, profile)
+  cacheProfile(profile: UserProfile): void {
+    this.profileCache.set(profile.id, profile)
     if (profile.handle) {
       this.profileCache.set(profile.handle, profile)
     }
   }
 
   // Get cached profile
-  getCachedProfile(didOrHandle: string): BlueskyProfile | undefined {
+  getCachedProfile(didOrHandle: string): UserProfile | undefined {
     return this.profileCache.get(didOrHandle)
   }
 
@@ -527,7 +383,7 @@ class IdentityService {
   // Cache an inbox↔DID mapping locally
   cacheMapping(inboxId: string, did: string): void {
     const existingDid = this.inboxToDid.get(inboxId)
-    const existingInbox = this.didToInbox.get(did)
+    const existingInbox = this.idToInbox.get(did)
 
     // Already have this exact mapping
     if (existingDid === did && existingInbox === inboxId) {
@@ -541,31 +397,31 @@ class IdentityService {
 
     // Inbox re-linked to a new DID - clean up old reverse mapping
     if (existingDid && existingDid !== did) {
-      this.didToInbox.delete(existingDid)
+      this.idToInbox.delete(existingDid)
     }
 
     this.inboxToDid.set(inboxId, did)
-    this.didToInbox.set(did, inboxId)
+    this.idToInbox.set(did, inboxId)
     this.saveCachedMappings()
   }
 
   // Remove an inbox↔DID mapping from local cache
   uncacheMapping(did: string): void {
-    const inboxId = this.didToInbox.get(did)
+    const inboxId = this.idToInbox.get(did)
     if (inboxId) {
       this.inboxToDid.delete(inboxId)
-      this.didToInbox.delete(did)
+      this.idToInbox.delete(did)
       this.saveCachedMappings()
     }
   }
 
   // Remove a mapping
-  async removeMapping(blueskyDid: string): Promise<void> {
-    const mapping = this.mappings.get(blueskyDid)
+  async removeMapping(identityId: string): Promise<void> {
+    const mapping = this.mappings.get(identityId)
     if (mapping) {
       this.inboxToDid.delete(mapping.xmtpInboxId)
     }
-    this.mappings.delete(blueskyDid)
+    this.mappings.delete(identityId)
     await this.saveMappings()
   }
 
@@ -607,7 +463,7 @@ class IdentityService {
   }
 
   private async fetchAndCacheStatus(did: string): Promise<XmtpUserStatus> {
-    const inboxId = await this.resolveDidToInbox(did)
+    const inboxId = await this.resolveIdToInbox(did)
     const status: XmtpUserStatus = inboxId ? 'verified' : 'not-on-chat'
 
     // Evict oldest entry if at capacity
@@ -631,7 +487,7 @@ class IdentityService {
     this.mappings.clear()
     this.profileCache.clear()
     this.inboxToDid.clear()
-    this.didToInbox.clear()
+    this.idToInbox.clear()
     this.statusCache.clear()
     this.pendingStatusChecks.clear()
     await this.saveMappings()

@@ -3,6 +3,7 @@ import { useGroupAdmin, type GroupMemberInfo } from '../context/GroupAdminContex
 import { Avatar } from '../../../shared/Avatar'
 import { RoleBadge } from '../shared/RoleBadge'
 import { xmtpService } from '../../../../services/xmtp'
+import { formatHandle } from '../../../../provider'
 
 interface MemberListItemProps {
   member: GroupMemberInfo
@@ -119,7 +120,7 @@ export function MemberListItem({ member }: MemberListItemProps) {
         </div>
         {handle && (
           <p className="text-[13px] text-[var(--color-text-secondary)] truncate">
-            @{handle}
+            {formatHandle(handle)}
           </p>
         )}
       </div>

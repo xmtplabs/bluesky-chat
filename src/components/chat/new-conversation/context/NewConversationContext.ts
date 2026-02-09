@@ -1,6 +1,6 @@
 import { createSafeContext } from '../../../../lib/context/createSafeContext'
 import type { ContextValue } from '../../../../lib/context/types'
-import type { BlueskyProfile, XmtpUserStatus } from '../../../../types'
+import type { UserProfile, XmtpUserStatus } from '../../../../types'
 
 export type ConversationMode = 'dm' | 'group'
 export type ListMode = 'following' | 'followers'
@@ -10,7 +10,7 @@ export interface NewConversationState {
   mode: ConversationMode
   listMode: ListMode
   searchQuery: string
-  selectedUsers: BlueskyProfile[]
+  selectedUsers: UserProfile[]
   groupName: string
   xmtpStatus: Map<string, XmtpUserStatus>
   isCreating: boolean
@@ -21,7 +21,7 @@ export interface NewConversationActions {
   setMode: (mode: ConversationMode) => void
   setListMode: (mode: ListMode) => void
   setSearchQuery: (query: string) => void
-  selectUser: (user: BlueskyProfile) => void
+  selectUser: (user: UserProfile) => void
   removeUser: (did: string) => void
   setGroupName: (name: string) => void
   startConversation: () => Promise<void>
@@ -29,11 +29,11 @@ export interface NewConversationActions {
 }
 
 export interface NewConversationMeta {
-  followers: BlueskyProfile[]
-  following: BlueskyProfile[]
-  searchResults: BlueskyProfile[]
+  followers: UserProfile[]
+  following: UserProfile[]
+  searchResults: UserProfile[]
   isSearching: boolean
-  displayList: BlueskyProfile[]
+  displayList: UserProfile[]
   canCreate: boolean
 }
 

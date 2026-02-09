@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useConnection } from '../context/ConnectionContext'
+import { formatHandle } from '../../../provider'
 import { RestorePrompt } from '../RestorePrompt'
 
 /**
@@ -24,12 +25,12 @@ export function RestoreOpportunity() {
           Welcome to Chat
         </h1>
         <p className="text-[14px] text-[var(--color-text-secondary)] mb-6">
-          {meta.blueskyProfile?.handle && (
+          {meta.profile?.handle && (
             <span className="text-[var(--color-text-primary)] font-medium">
-              @{meta.blueskyProfile.handle}
+              {formatHandle(meta.profile.handle)}
             </span>
           )}
-          {meta.blueskyProfile?.handle && ', '}
+          {meta.profile?.handle && ', '}
           set up your encrypted inbox to start messaging.
         </p>
 

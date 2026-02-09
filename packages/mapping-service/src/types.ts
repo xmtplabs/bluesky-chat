@@ -10,33 +10,34 @@ interface RateLimit {
 
 export interface Env {
   DB: D1Database
-  JETSTREAM_INDEXER: DurableObjectNamespace
+  JETSTREAM_INDEXER?: DurableObjectNamespace
   ADMIN_KEY?: string // Set via `wrangler secret put ADMIN_KEY`
   RATE_LIMITER: RateLimit // Global rate limiter for public endpoints
   ADMIN_RATE_LIMITER: RateLimit // Stricter rate limiter for admin endpoints
+  IDENTITY_PROVIDER?: string // 'bluesky' (default) or 'nostr'
 }
 
 export interface Mapping {
-  did: string
+  identityId: string
   inboxId: string
   signature: string
   createdAt: number
 }
 
 export interface MappingRow {
-  did: string
+  identity_id: string
   inbox_id: string
   signature: string
   created_at: number
 }
 
 export interface LookupResponse {
-  did: string
+  id: string
   inboxId: string
 }
 
 export interface BulkRequest {
-  type: 'by-did' | 'by-inbox'
+  type: 'by-id' | 'by-inbox'
   identifiers: string[]
 }
 
@@ -46,12 +47,12 @@ export interface BulkResponse {
 }
 
 export interface RegisterRequest {
-  did: string
+  id: string
 }
 
 export interface RegisterResponse {
   success: boolean
-  did: string
+  id: string
   inboxId: string
 }
 

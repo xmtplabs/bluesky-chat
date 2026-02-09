@@ -1,6 +1,6 @@
 import { createSafeContext } from '../../../lib/context/createSafeContext'
 import type { ContextValue } from '../../../lib/context/types'
-import type { BlueskyProfile } from '../../../types'
+import type { UserProfile } from '../../../types'
 import type { Hex } from 'viem'
 
 export type ConnectionPhase =
@@ -23,7 +23,7 @@ export interface ConnectionActions {
 }
 
 export interface ConnectionMeta {
-  blueskyProfile: BlueskyProfile | null
+  profile: UserProfile | null
   isRestoring: boolean
   isClearing: boolean
   hasExistingKey: boolean

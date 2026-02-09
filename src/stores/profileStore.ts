@@ -1,14 +1,15 @@
 import { create } from 'zustand'
-import type { BlueskyProfile } from '../types'
-import { blueskyService } from '../services/bluesky'
+import type { UserProfile } from '../types'
+import { provider } from '../provider'
+import { useAuthStore } from './authStore'
 import { identityService } from '../services/identity'
 import { xmtpService } from '../services/xmtp'
 
 interface ProfileState {
-  followers: BlueskyProfile[]
-  following: BlueskyProfile[]
+  followers: UserProfile[]
+  following: UserProfile[]
   followingDids: Set<string>
-  searchResults: BlueskyProfile[]
+  searchResults: UserProfile[]
   xmtpEnabledAddresses: Map<string, boolean>
   isLoading: boolean
   isSearching: boolean
@@ -47,7 +48,9 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
     set({ isLoading: true, error: null, followers: [] })
 
     try {
-      const { followers, cursor } = await blueskyService.getFollowers()
+      const currentDid = useAuthStore.getState().profile?.id
+      if (!currentDid || !provider.getFollowers) return
+      const { profiles: followers, cursor } = await provider.getFollowers(currentDid)
 
       // Cache profiles
       followers.forEach((f) => identityService.cacheProfile(f))
@@ -68,8 +71,10 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
     set({ isLoading: true })
 
     try {
-      const { followers: moreFollowers, cursor } = await blueskyService.getFollowers(
-        undefined,
+      const currentDid = useAuthStore.getState().profile?.id
+      if (!currentDid || !provider.getFollowers) return
+      const { profiles: moreFollowers, cursor } = await provider.getFollowers(
+        currentDid,
         followersCursor
       )
 
@@ -90,7 +95,9 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
     set({ isLoading: true, error: null, following: [] })
 
     try {
-      const { following, cursor } = await blueskyService.getFollowing()
+      const currentDid = useAuthStore.getState().profile?.id
+      if (!currentDid || !provider.getFollowing) return
+      const { profiles: following, cursor } = await provider.getFollowing(currentDid)
 
       following.forEach((f) => identityService.cacheProfile(f))
 
@@ -110,8 +117,10 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
     set({ isLoading: true })
 
     try {
-      const { following: moreFollowing, cursor } = await blueskyService.getFollowing(
-        undefined,
+      const currentDid = useAuthStore.getState().profile?.id
+      if (!currentDid || !provider.getFollowing) return
+      const { profiles: moreFollowing, cursor } = await provider.getFollowing(
+        currentDid,
         followingCursor
       )
 
@@ -135,7 +144,9 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
     set({ isLoadingFollowingDids: true })
 
     try {
-      const allDids = await blueskyService.getAllFollowingDids()
+      const currentDid = useAuthStore.getState().profile?.id
+      if (!currentDid || !provider.getAllFollowingIds) return
+      const allDids = await provider.getAllFollowingIds(currentDid)
       set({ followingDids: allDids })
     } catch (error) {
       console.error('Failed to load all following DIDs:', error)
@@ -153,7 +164,7 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
     set({ isSearching: true, error: null })
 
     try {
-      const results = await blueskyService.searchUsers(query)
+      const results = await provider.searchUsers(query)
 
       results.forEach((r) => identityService.cacheProfile(r))
 

@@ -1,9 +1,10 @@
-import { useBluesky } from '../../hooks/useBluesky'
+import { useIdentity } from '../../hooks/useIdentity'
 import { useAuthStore } from '../../stores/authStore'
+import { formatHandle } from '../../provider'
 import { Avatar } from '../shared/Avatar'
 
-export function BlueskyProfile() {
-  const { profile } = useBluesky()
+export function IdentityProfile() {
+  const { profile } = useIdentity()
   const { xmtpAddress, xmtpInboxId } = useAuthStore()
 
   if (!profile) return null
@@ -21,7 +22,7 @@ export function BlueskyProfile() {
           <h2 className="text-xl font-bold text-gray-900">
             {profile.displayName || profile.handle}
           </h2>
-          <p className="text-gray-500">@{profile.handle}</p>
+          <p className="text-gray-500">{formatHandle(profile.handle)}</p>
         </div>
       </div>
 
@@ -66,10 +67,10 @@ export function BlueskyProfile() {
       {/* DID */}
       <div className="pt-4 border-t border-gray-200 space-y-2">
         <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider">
-          Bluesky Identity
+          Identity
         </h3>
         <div className="font-mono text-sm text-gray-600 break-all">
-          {profile.did}
+          {profile.id}
         </div>
       </div>
     </div>

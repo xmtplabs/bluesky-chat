@@ -2,8 +2,8 @@ import type { DecodedMessage } from '@xmtp/browser-sdk'
 
 export type MessageGroupPosition = 'single' | 'first' | 'middle' | 'last'
 
-export interface BlueskyProfile {
-  did: string
+export interface UserProfile {
+  id: string              // Provider identity ID: DID for Bluesky, npub for Nostr
   handle: string
   displayName?: string
   avatar?: string
@@ -13,8 +13,8 @@ export interface BlueskyProfile {
 }
 
 export interface IdentityMapping {
-  blueskyDid: string
-  blueskyHandle: string
+  identityId: string          // was blueskyDid
+  identityHandle: string      // was blueskyHandle
   xmtpInboxId: string
   verificationSignature: string
   createdAt: number
@@ -24,7 +24,7 @@ export interface ChatConversation {
   id: string
   topic: string
   peerAddress: string
-  peerProfile?: BlueskyProfile
+  peerProfile?: UserProfile
   lastMessage?: string
   lastMessageTime?: number
   unreadCount: number
@@ -40,7 +40,7 @@ export interface ChatMessage {
   id: string
   conversationId: string
   senderAddress: string
-  senderProfile?: BlueskyProfile
+  senderProfile?: UserProfile
   content: string
   sentAt: number
   status: 'sending' | 'sent' | 'delivered' | 'failed'

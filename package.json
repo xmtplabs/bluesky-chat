@@ -7,7 +7,11 @@
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
+    "dev:bluesky": "CHAT_PROVIDER=bluesky electron-vite dev",
+    "dev:nostr": "CHAT_PROVIDER=nostr electron-vite dev",
     "build": "electron-vite build",
+    "build:bluesky": "CHAT_PROVIDER=bluesky electron-vite build",
+    "build:nostr": "CHAT_PROVIDER=nostr electron-vite build",
     "preview": "electron-vite preview",
     "postinstall": "electron-builder install-app-deps && node node_modules/electron/install.js",
     "pack": "electron-builder --dir",

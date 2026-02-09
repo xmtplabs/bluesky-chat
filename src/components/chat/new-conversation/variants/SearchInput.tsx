@@ -1,7 +1,8 @@
 import { useNewConversation } from '../context/NewConversationContext'
+import { config } from '../../../../provider'
 
 /**
- * Search input for finding Bluesky users.
+ * Search input for finding users.
  */
 export function SearchInput() {
   const { state, actions } = useNewConversation()
@@ -27,9 +28,9 @@ export function SearchInput() {
           type="text"
           value={searchQuery}
           onChange={(e) => actions.setSearchQuery(e.target.value)}
-          placeholder="Search Bluesky users..."
+          placeholder={`Search ${config.name} users...`}
           autoComplete="off"
-          aria-label="Search Bluesky users"
+          aria-label={`Search ${config.name} users`}
           className="w-full pl-10 pr-4 py-2.5 bg-[var(--color-surface-secondary)] rounded-xl text-[14px] text-[var(--color-text-primary)] placeholder-[var(--color-text-tertiary)] focus:outline-none focus:bg-[var(--color-surface-tertiary)] transition-colors"
         />
       </div>

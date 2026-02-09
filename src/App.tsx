@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAuthStore } from './stores/authStore'
 import { useUIStore } from './stores/uiStore'
-import { BlueskyLogin } from './components/auth/BlueskyLogin'
+import { LoginScreen } from './components/auth/LoginScreen'
 import { Sidebar } from './components/layout/Sidebar'
 import { ChatView } from './components/chat/ChatView'
 import { ErrorBoundary } from './components/shared/ErrorBoundary'
@@ -14,7 +14,7 @@ import * as Connection from './components/connection/Connection'
 
 export default function App() {
   const [isInitializing, setIsInitializing] = useState(true)
-  const { isBlueskyLoggedIn, isXMTPConnected, initializeServices } = useAuthStore()
+  const { isLoggedIn, isXMTPConnected, initializeServices } = useAuthStore()
   const { viewingProfileDid, groupAdminModalGroupId, closeGroupAdmin } = useUIStore()
 
   useEffect(() => {
@@ -42,8 +42,8 @@ export default function App() {
     )
   }
 
-  if (!isBlueskyLoggedIn) {
-    return <BlueskyLogin />
+  if (!isLoggedIn) {
+    return <LoginScreen />
   }
 
   if (!isXMTPConnected) {
