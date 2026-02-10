@@ -44,6 +44,8 @@ let authWindow: BrowserWindow | null = null
 const secureStorage = new SecureStorage()
 
 function createWindow(): void {
+  const isMac = process.platform === 'darwin'
+
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -51,8 +53,10 @@ function createWindow(): void {
     minHeight: 600,
     show: false,
     icon: iconPath,
-    titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 15, y: 15 },
+    // macOS: hide native title bar but keep traffic light buttons
+    ...(isMac
+      ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 15, y: 15 } }
+      : { autoHideMenuBar: true }),
     backgroundColor: '#111827',
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
