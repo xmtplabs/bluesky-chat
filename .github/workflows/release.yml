@@ -44,9 +44,10 @@ jobs:
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
           VERSION="${TAG#v}"
-          DMG="dist/Bluesky-Chat-${VERSION}-arm64.dmg"
-          if [ -f "$DMG" ]; then
+          # electron-builder uses productName "Bluesky Chat" (with space) for local files
+          # but converts to hyphens when uploading to GitHub releases
+          DMG=$(ls dist/Bluesky*Chat*${VERSION}*arm64.dmg 2>/dev/null | head -1)
+          if [ -n "$DMG" ]; then
             cp "$DMG" dist/Bluesky-Chat-arm64.dmg
-            # Delete previous stable-named asset if it exists, then upload
             gh release upload "$TAG" dist/Bluesky-Chat-arm64.dmg --repo "$GITHUB_REPOSITORY" --clobber
           fi
