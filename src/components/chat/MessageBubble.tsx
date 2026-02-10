@@ -5,6 +5,7 @@ interface MessageBubbleProps {
   message: ChatMessage
   isOwn: boolean
   showAvatar: boolean
+  showSenderName?: boolean
   avatar?: string
   groupPosition: MessageGroupPosition
   showTimestamp?: boolean
@@ -26,7 +27,7 @@ function getBubbleRadius(isOwn: boolean, pos: MessageGroupPosition): string {
   return 'rounded-2xl rounded-tl-md' // last
 }
 
-export function MessageBubble({ message, isOwn, showAvatar, avatar, groupPosition, showTimestamp = true, isGroupChat = false }: MessageBubbleProps) {
+export function MessageBubble({ message, isOwn, showAvatar, showSenderName = false, avatar, groupPosition, showTimestamp = true, isGroupChat = false }: MessageBubbleProps) {
   const { openUserProfile } = useUIStore()
   const time = new Date(message.sentAt).toLocaleTimeString(undefined, {
     hour: 'numeric',
@@ -41,7 +42,7 @@ export function MessageBubble({ message, isOwn, showAvatar, avatar, groupPositio
 
   const isAvatarClickable = !isOwn && showAvatar && message.senderProfile?.id
 
-  const senderName = !isOwn && isGroupChat && showAvatar
+  const senderName = !isOwn && isGroupChat && showSenderName
     ? (message.senderProfile?.displayName || message.senderProfile?.handle)
     : undefined
 
@@ -53,23 +54,23 @@ export function MessageBubble({ message, isOwn, showAvatar, avatar, groupPositio
             {senderName}
           </span>
         )}
-        <div className={`flex items-end gap-2 ${isOwn ? 'flex-row-reverse' : ''}`}>
+        <div className={`flex gap-2 ${isOwn ? 'flex-row-reverse' : ''}`}>
           {!isOwn && showAvatar && (
-            <div className="flex-shrink-0 mb-1">
+            <div className={`flex-shrink-0 self-stretch flex ${groupPosition === 'last' ? 'items-start' : 'items-end'}`}>
               {isAvatarClickable ? (
                 <button
                   onClick={handleAvatarClick}
                   aria-label="View profile"
-                  className="focus:outline-none focus:ring-2 focus:ring-[var(--color-bsky-500)] focus:ring-offset-2 rounded-full"
+                  className="p-0 leading-none focus:outline-none focus:ring-2 focus:ring-[var(--color-bsky-500)] focus:ring-offset-2 rounded-full"
                 >
                   {avatar ? (
-                    <img src={avatar} alt="" width={32} height={32} className="w-8 h-8 rounded-full hover:opacity-80 transition-opacity" />
+                    <img src={avatar} alt="" width={32} height={32} className="block w-8 h-8 rounded-full hover:opacity-80 transition-opacity" />
                   ) : (
                     <div className="w-8 h-8 rounded-full bg-[var(--color-surface-tertiary)] hover:opacity-80 transition-opacity" />
                   )}
                 </button>
               ) : avatar ? (
-                <img src={avatar} alt="" width={32} height={32} className="w-8 h-8 rounded-full" />
+                <img src={avatar} alt="" width={32} height={32} className="block w-8 h-8 rounded-full" />
               ) : (
                 <div className="w-8 h-8 rounded-full bg-[var(--color-surface-tertiary)]" />
               )}

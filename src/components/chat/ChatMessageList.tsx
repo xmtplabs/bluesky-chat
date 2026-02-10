@@ -11,7 +11,7 @@ import type { ChatMessage, MessageGroupPosition } from '../../types'
 type MessageListItem =
   | { type: 'security-banner' }
   | { type: 'date-divider'; timestamp: number }
-  | { type: 'message'; message: ChatMessage; isOwn: boolean; showAvatar: boolean; groupPosition: MessageGroupPosition; showTimestamp: boolean; isGroupChat: boolean }
+  | { type: 'message'; message: ChatMessage; isOwn: boolean; showAvatar: boolean; showSenderName: boolean; groupPosition: MessageGroupPosition; showTimestamp: boolean; isGroupChat: boolean }
 
 function canGroupMessages(current: ChatMessage, other: ChatMessage | null): boolean {
   if (!other) return false
@@ -68,11 +68,12 @@ export function ChatMessageList() {
       const isOwn = message.senderAddress === inboxId
       const groupPosition = getGroupPosition(messages, index)
       const isGroupChat = !!conversation?.isGroup
-      // Only show avatars in group chats, not DMs
-      const showAvatar = !isOwn && isGroupChat && (groupPosition === 'first' || groupPosition === 'single')
+      // Show avatar at bottom of group, sender name at top
+      const showAvatar = !isOwn && isGroupChat && (groupPosition === 'last' || groupPosition === 'single')
+      const showSenderName = !isOwn && isGroupChat && (groupPosition === 'first' || groupPosition === 'single')
       const showTimestamp = groupPosition === 'last' || groupPosition === 'single'
 
-      items.push({ type: 'message', message, isOwn, showAvatar, groupPosition, showTimestamp, isGroupChat })
+      items.push({ type: 'message', message, isOwn, showAvatar, showSenderName, groupPosition, showTimestamp, isGroupChat })
     })
 
     return items
@@ -116,6 +117,7 @@ export function ChatMessageList() {
               message={item.message}
               isOwn={item.isOwn}
               showAvatar={item.showAvatar}
+              showSenderName={item.showSenderName}
               avatar={item.isOwn ? myProfile?.avatar : (item.isGroupChat ? item.message.senderProfile?.avatar : conversation?.peerProfile?.avatar)}
               groupPosition={item.groupPosition}
               showTimestamp={item.showTimestamp}
