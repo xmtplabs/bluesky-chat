@@ -37,8 +37,7 @@ function getGroupPosition(messages: ChatMessage[], index: number): MessageGroupP
 }
 
 function shouldShowDateDivider(currentMessage: ChatMessage, prevMessage: ChatMessage | null): boolean {
-  if (!prevMessage) return false
-  if (prevMessage.isSystemMessage) return false
+  if (!prevMessage) return true
 
   const currentDate = new Date(currentMessage.sentAt).toDateString()
   const prevDate = new Date(prevMessage.sentAt).toDateString()

@@ -26,11 +26,9 @@ export function DateDivider({ timestamp }: DateDividerProps) {
 
   return (
     <div className="flex items-center justify-center py-4">
-      <div className="px-3 py-1 bg-[var(--color-surface-secondary)] rounded-full">
-        <span className="text-[12px] font-medium text-[var(--color-text-secondary)]">
-          {dateLabel}
-        </span>
-      </div>
+      <span className="text-[12px] font-medium text-[var(--color-text-secondary)]">
+        {dateLabel}
+      </span>
     </div>
   )
 }
