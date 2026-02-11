@@ -12,6 +12,8 @@ import { config } from '../../provider'
 
 type Modal = 'new-conversation' | 'requests' | null
 
+const isMac = window.electronAPI?.platform === 'darwin'
+
 export function Sidebar() {
   const [modal, setModal] = useState<Modal>(null)
   const [searchQuery, setSearchQuery] = useState('')
@@ -24,10 +26,12 @@ export function Sidebar() {
   if (sidebarView === 'inbox-settings') {
     return (
       <nav aria-label="Inbox settings" className="w-80 bg-[var(--color-surface)] flex flex-col h-full border-r border-[var(--color-border)]">
-        {/* Traffic light spacer */}
-        <div className="drag-region pt-3 flex-shrink-0">
-          <div className="h-6" />
-        </div>
+        {/* Traffic light spacer (macOS only) */}
+        {isMac && (
+          <div className="drag-region pt-3 flex-shrink-0">
+            <div className="h-6" />
+          </div>
+        )}
         <div className="flex-1 min-h-0">
           <InboxSettingsView />
         </div>
@@ -39,8 +43,8 @@ export function Sidebar() {
     <nav aria-label="Conversations" className="w-80 bg-[var(--color-surface)] flex flex-col h-full border-r border-[var(--color-border)]">
       {/* Header */}
       <div className="drag-region pt-3 pb-2 px-4">
-        {/* Traffic light spacer */}
-        <div className="h-6" />
+        {/* Traffic light spacer (macOS only) */}
+        {isMac && <div className="h-6" />}
 
         {/* Title row */}
         <div className="no-drag flex items-start justify-between">

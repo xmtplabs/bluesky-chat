@@ -2,6 +2,8 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { ElectronAPI } from '../src/types'
 
 const electronAPI: ElectronAPI = {
+  // Platform
+  platform: process.platform,
   // Build mode
   getBuildMode: () => ipcRenderer.invoke('get-build-mode'),
   // Storage diagnostics

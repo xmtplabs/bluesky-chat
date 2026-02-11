@@ -78,6 +78,8 @@ export interface UpdateProgress {
 
 // IPC channel types
 export interface ElectronAPI {
+  // Platform
+  platform: string
   // Build mode
   getBuildMode: () => Promise<BuildMode>
 
