@@ -502,18 +502,14 @@ function setupIpcHandlers(): void {
 
   // OAuth
   ipcMain.handle('open-oauth-window', async (_, url: string) => {
-    // Validate OAuth URL is from allowed Bluesky domains
+    // Validate OAuth URL uses HTTPS (AT Protocol is federated, so any PDS domain is valid)
     try {
       const parsed = new URL(url)
-      const isAllowed = parsed.hostname === 'bsky.social' ||
-                        parsed.hostname.endsWith('.bsky.social') ||
-                        parsed.hostname === 'bsky.app' ||
-                        parsed.hostname.endsWith('.bsky.app')
-      if (!isAllowed) {
-        throw new Error(`OAuth URL not from allowed domain: ${parsed.hostname}`)
+      if (parsed.protocol !== 'https:') {
+        throw new Error(`OAuth URL must use HTTPS, got: ${parsed.protocol}`)
       }
     } catch (e) {
-      if (e instanceof Error && e.message.includes('OAuth URL not from allowed')) {
+      if (e instanceof Error && e.message.includes('OAuth URL must use')) {
         throw e
       }
       throw new Error('Invalid OAuth URL')

@@ -249,13 +249,23 @@ describe('Bluesky provider adapter logic', () => {
   })
 
   describe('lookupInboxForIdentity', () => {
+    // PDS resolution makes two fetches: plc.directory -> PDS record
+    const mockPlcResponse = (pdsEndpoint: string) => ({
+      ok: true,
+      json: () => Promise.resolve({
+        service: [{ id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: pdsEndpoint }],
+      }),
+    })
+
     it('should return { found: true, inboxId, verificationSignature } on success', async () => {
-      global.fetch = vi.fn().mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({
-          value: { id: 'inbox-123', verificationSignature: 'sig-abc' },
-        }),
-      })
+      global.fetch = vi.fn()
+        .mockResolvedValueOnce(mockPlcResponse('https://pds.example.com'))
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({
+            value: { id: 'inbox-123', verificationSignature: 'sig-abc' },
+          }),
+        })
 
       const result = await provider.lookupInboxForIdentity('did:plc:test123')
       expect(result).toEqual({
@@ -263,33 +273,63 @@ describe('Bluesky provider adapter logic', () => {
         inboxId: 'inbox-123',
         verificationSignature: 'sig-abc',
       })
+      // Verify PDS resolution was called
+      expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('plc.directory'))
+      // Verify record fetched from resolved PDS
+      expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('pds.example.com'))
+    })
+
+    it('should fall back to bsky.social when plc.directory fails', async () => {
+      global.fetch = vi.fn()
+        .mockResolvedValueOnce({ ok: false, status: 500 }) // plc.directory fails
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({
+            value: { id: 'inbox-456', verificationSignature: 'sig-def' },
+          }),
+        })
+
+      const result = await provider.lookupInboxForIdentity('did:plc:test123')
+      expect(result).toEqual({
+        found: true,
+        inboxId: 'inbox-456',
+        verificationSignature: 'sig-def',
+      })
+      // Should fall back to bsky.social
+      expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('bsky.social'))
     })
 
     it('should return { found: false, notFound: true } on 404', async () => {
-      global.fetch = vi.fn().mockResolvedValueOnce({
-        ok: false,
-        status: 404,
-      })
+      global.fetch = vi.fn()
+        .mockResolvedValueOnce(mockPlcResponse('https://bsky.social'))
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 404,
+        })
 
       const result = await provider.lookupInboxForIdentity('did:plc:unknown')
       expect(result).toEqual({ found: false, notFound: true })
     })
 
     it('should return { found: false, notFound: true } on 400', async () => {
-      global.fetch = vi.fn().mockResolvedValueOnce({
-        ok: false,
-        status: 400,
-      })
+      global.fetch = vi.fn()
+        .mockResolvedValueOnce(mockPlcResponse('https://bsky.social'))
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 400,
+        })
 
       const result = await provider.lookupInboxForIdentity('did:plc:invalid')
       expect(result).toEqual({ found: false, notFound: true })
     })
 
     it('should return { found: false, notFound: false } on other HTTP errors', async () => {
-      global.fetch = vi.fn().mockResolvedValueOnce({
-        ok: false,
-        status: 500,
-      })
+      global.fetch = vi.fn()
+        .mockResolvedValueOnce(mockPlcResponse('https://bsky.social'))
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 500,
+        })
 
       const result = await provider.lookupInboxForIdentity('did:plc:test')
       expect(result).toEqual({ found: false, notFound: false })
@@ -303,12 +343,14 @@ describe('Bluesky provider adapter logic', () => {
     })
 
     it('should return { found: false, notFound: true } when record missing required fields', async () => {
-      global.fetch = vi.fn().mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({
-          value: { id: null, verificationSignature: '' },
-        }),
-      })
+      global.fetch = vi.fn()
+        .mockResolvedValueOnce(mockPlcResponse('https://bsky.social'))
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({
+            value: { id: null, verificationSignature: '' },
+          }),
+        })
 
       const result = await provider.lookupInboxForIdentity('did:plc:test')
       expect(result).toEqual({ found: false, notFound: true })
