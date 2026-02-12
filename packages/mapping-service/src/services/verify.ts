@@ -13,8 +13,6 @@
  * until the indexer confirms them from ATProto.
  */
 
-import { fetchRecordFromPds } from './pds-resolution'
-
 export type XmtpEnv = 'production' | 'dev'
 
 export interface VerifyResult {
@@ -72,39 +70,4 @@ export async function verifyInboxOwnership(
 
   // Format validation passed - cryptographic verification deferred to indexer
   return { verified: true }
-}
-
-/**
- * Verify a mapping by fetching the ATProto record directly.
- * This provides ground-truth verification from the source.
- *
- * @param did - Bluesky DID to verify
- * @returns The ATProto record if valid, null otherwise
- */
-export async function verifyFromATProto(
-  did: string
-): Promise<{ inboxId: string; signature: string } | null> {
-  try {
-    const response = await fetchRecordFromPds(did, 'org.xmtp.inbox', 'self')
-
-    if (!response.ok) {
-      return null
-    }
-
-    const data = (await response.json()) as {
-      value?: { id?: string; verificationSignature?: string }
-    }
-    const record = data.value
-
-    if (!record?.id || !record?.verificationSignature) {
-      return null
-    }
-
-    return {
-      inboxId: record.id,
-      signature: record.verificationSignature
-    }
-  } catch {
-    return null
-  }
 }
