@@ -20,8 +20,11 @@ export async function resolvePdsEndpoint(did: string): Promise<string | null> {
   if (did.startsWith('did:web:')) return null
 
   const cached = pdsCache.get(did)
-  if (cached && cached.expiry > Date.now()) {
-    return cached.endpoint
+  if (cached) {
+    if (cached.expiry > Date.now()) {
+      return cached.endpoint
+    }
+    pdsCache.delete(did)
   }
 
   try {
