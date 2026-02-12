@@ -9,7 +9,9 @@
 
 An open source reference app from [XMTP Labs](https://xmtp.org) demonstrating how to build secure messaging for Bluesky users.
 
-This app publishes XMTP signatures to the `org.xmtp.inbox` AT Protocol record to cryptographically bind Bluesky handles to XMTP inboxes, enabling end-to-end encrypted DMs and group chats for the Bluesky network.
+This app publishes XMTP signatures to the `org.xmtp.inbox` AT Protocol record to cryptographically bind Bluesky handles to XMTP inboxes, enabling end-to-end encrypted DMs and group chats for the Bluesky network. 
+
+For more details, read the XMTP blog post on [unlocking quantum-encrypted group chats for AT Protocol](https://blog.xmtp.org/unlocking-quantum-encrypted-group-chats-for-atproto-on-xmtp/).
 
 ## Why
 
