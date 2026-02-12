@@ -55,7 +55,7 @@ export function LoginScreen() {
               {/* Username/identifier input */}
               <div>
                 <label htmlFor="identifier" className="block text-[14px] font-medium text-[var(--color-text-primary)] mb-2">
-                  {showPasswordForm ? 'Handle or Email' : `${config.name} Username`}
+                  {showPasswordForm ? 'Handle or Email' : identifier.includes('.') ? 'Username' : `${config.name} Username`}
                 </label>
                 {!showPasswordForm && config.loginSuffix ? (
                   <div className="flex items-center bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-[var(--color-bsky-500)] focus-within:border-transparent transition-all duration-200">
@@ -64,12 +64,19 @@ export function LoginScreen() {
                       type="text"
                       value={identifier}
                       onChange={(e) => setIdentifier(e.target.value)}
-                      placeholder={config.loginPlaceholder}
+                      placeholder={identifier.includes('.') ? 'alice.blacksky.team' : config.loginPlaceholder}
                       required
                       autoComplete="username"
-                      className="flex-1 px-4 py-3 bg-transparent text-[16px] text-[var(--color-text-primary)] placeholder-[var(--color-text-tertiary)] focus:outline-none"
+                      className="flex-1 px-4 py-3 bg-transparent text-[16px] text-[var(--color-text-primary)] placeholder-[var(--color-text-tertiary)] focus:outline-none min-w-0"
                     />
-                    <span className="px-4 py-3 text-[16px] text-[var(--color-text-tertiary)] select-none bg-[var(--color-surface-secondary)] border-l border-[var(--color-border)]">
+                    <span
+                      className={`text-[16px] select-none bg-[var(--color-surface-secondary)] border-l border-[var(--color-border)] whitespace-nowrap transition-all duration-200 ${
+                        identifier.includes('.')
+                          ? 'max-w-0 px-0 py-3 opacity-0 border-l-0 overflow-hidden'
+                          : 'max-w-[200px] px-4 py-3 opacity-100'
+                      }`}
+                      style={{ color: 'var(--color-text-tertiary)' }}
+                    >
                       {config.loginSuffix}
                     </span>
                   </div>
@@ -86,8 +93,8 @@ export function LoginScreen() {
                   />
                 )}
                 {!showPasswordForm && config.loginSuffix && (
-                  <p className="mt-2 text-[12px] text-[var(--color-text-secondary)]">
-                    Or enter your full custom domain handle
+                  <p className="mt-2 text-[12px] text-[var(--color-text-tertiary)]">
+                    Using a different server? Just type your full handle.
                   </p>
                 )}
               </div>
@@ -161,7 +168,7 @@ export function LoginScreen() {
                     {showPasswordForm ? 'Signing in...' : 'Connecting...'}
                   </>
                 ) : (
-                  showPasswordForm ? 'Sign In' : `Sign in with ${config.name}`
+                  showPasswordForm || identifier.includes('.') ? 'Sign In' : `Sign in with ${config.name}`
                 )}
               </button>
 

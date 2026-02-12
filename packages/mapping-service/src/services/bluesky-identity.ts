@@ -5,6 +5,7 @@
  */
 
 import type { IdentityProviderService } from './identity'
+import { fetchRecordFromPds } from './pds-resolution'
 
 export class BlueskyIdentityProvider implements IdentityProviderService {
   isValidIdentity(id: string): boolean {
@@ -17,9 +18,7 @@ export class BlueskyIdentityProvider implements IdentityProviderService {
 
   async verifyFromSource(did: string): Promise<{ inboxId: string; signature: string } | null> {
     try {
-      const response = await fetch(
-        `https://bsky.social/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(did)}&collection=org.xmtp.inbox&rkey=self`
-      )
+      const response = await fetchRecordFromPds(did, 'org.xmtp.inbox', 'self')
 
       if (!response.ok) {
         return null

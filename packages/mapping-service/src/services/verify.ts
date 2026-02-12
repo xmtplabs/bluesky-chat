@@ -13,6 +13,8 @@
  * until the indexer confirms them from ATProto.
  */
 
+import { fetchRecordFromPds } from './pds-resolution'
+
 export type XmtpEnv = 'production' | 'dev'
 
 export interface VerifyResult {
@@ -83,9 +85,7 @@ export async function verifyFromATProto(
   did: string
 ): Promise<{ inboxId: string; signature: string } | null> {
   try {
-    const response = await fetch(
-      `https://bsky.social/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(did)}&collection=org.xmtp.inbox&rkey=self`
-    )
+    const response = await fetchRecordFromPds(did, 'org.xmtp.inbox', 'self')
 
     if (!response.ok) {
       return null

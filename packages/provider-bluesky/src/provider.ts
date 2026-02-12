@@ -1,5 +1,6 @@
 import type { IdentityProvider, ProviderConfig, UserProfile } from '@bluesky-chat/provider-interface'
 import { BlueskyService } from './bluesky'
+import { fetchRecordFromPds } from './pds-resolution'
 
 const service = new BlueskyService()
 
@@ -49,9 +50,7 @@ export const provider: IdentityProvider = {
 
   async lookupInboxForIdentity(id: string) {
     try {
-      const response = await fetch(
-        `https://bsky.social/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(id)}&collection=org.xmtp.inbox&rkey=self`
-      )
+      const response = await fetchRecordFromPds(id, 'org.xmtp.inbox', 'self')
       if (!response.ok) {
         if (response.status === 400 || response.status === 404) {
           return { found: false as const, notFound: true }

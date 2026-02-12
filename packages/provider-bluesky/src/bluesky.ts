@@ -2,6 +2,7 @@ import { Agent, AtpAgent, type AppBskyActorDefs } from '@atproto/api'
 import { BrowserOAuthClient, type OAuthSession } from '@atproto/oauth-client-browser'
 import { buildAtprotoLoopbackClientId } from '@atproto/oauth-types'
 import type { UserProfile } from '@bluesky-chat/provider-interface'
+import { resolvePdsEndpoint } from './pds-resolution'
 
 export class BlueskyService {
   private oauthClient: BrowserOAuthClient | null = null
@@ -48,6 +49,9 @@ export class BlueskyService {
         console.warn('[bluesky] Could not check IndexedDB:', e)
       }
 
+      // handleResolver uses bsky.social but this works for ALL AT Protocol handles
+      // (including Blacksky etc.) because the entryway resolves handles network-wide,
+      // then the OAuth flow contacts the user's actual authorization server.
       this.oauthClient = await BrowserOAuthClient.load({
         clientId,
         handleResolver: 'https://bsky.social'
@@ -164,14 +168,37 @@ export class BlueskyService {
   }
 
   async loginWithPassword(identifier: string, password: string): Promise<UserProfile> {
-    // Direct password login (simpler for development)
-    const atpAgent = new AtpAgent({ service: 'https://bsky.social' })
-
     // Normalize identifier - add .bsky.social if it looks like a handle without domain
     // (but don't modify email addresses)
     const normalizedIdentifier = identifier.includes('@') || identifier.includes('.')
       ? identifier
       : `${identifier}.bsky.social`
+
+    // Auto-discover the user's PDS for federated users (e.g. Blacksky)
+    let pdsUrl = 'https://bsky.social'
+    try {
+      let did: string | null = null
+      if (normalizedIdentifier.startsWith('did:')) {
+        did = normalizedIdentifier
+      } else {
+        // Resolve handle -> DID via the entryway (works for all AT Protocol handles)
+        const res = await fetch(
+          `https://bsky.social/xrpc/com.atproto.identity.resolveHandle?handle=${encodeURIComponent(normalizedIdentifier)}`
+        )
+        if (res.ok) {
+          const data = await res.json()
+          did = data.did
+        }
+      }
+      if (did) {
+        const endpoint = await resolvePdsEndpoint(did)
+        if (endpoint) pdsUrl = endpoint
+      }
+    } catch {
+      // Fall back to bsky.social on any error
+    }
+
+    const atpAgent = new AtpAgent({ service: pdsUrl })
 
     await atpAgent.login({
       identifier: normalizedIdentifier,
