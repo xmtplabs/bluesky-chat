@@ -46,7 +46,7 @@ export interface ChatMessage {
   status: 'sending' | 'sent' | 'delivered' | 'failed'
   // System message info (e.g., group membership changes)
   isSystemMessage?: boolean
-  systemMessageType?: 'member_added' | 'member_removed' | 'group_updated' | 'unknown'
+  systemMessageType?: 'member_added' | 'member_removed' | 'group_updated' | 'unsupported' | 'unknown'
 }
 
 export interface NotificationSettings {

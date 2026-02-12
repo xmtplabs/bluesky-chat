@@ -237,15 +237,15 @@ function parseMessageContent(
     return { content: '', isSystemMessage: true, systemMessageType: 'unknown' }
   }
 
-  // Unknown non-string object - treat as system message to avoid [object Object]
+  // Unknown non-string object - show fallback so users know a message was sent
   if (content && typeof content === 'object') {
-    return { content: '', isSystemMessage: true, systemMessageType: 'unknown' }
+    return { content: 'This message type is not yet supported', isSystemMessage: true, systemMessageType: 'unsupported' }
   }
 
   // Fallback - convert to string but avoid [object Object]
   const stringContent = content?.toString() || ''
   if (stringContent === '[object Object]') {
-    return { content: '', isSystemMessage: true, systemMessageType: 'unknown' }
+    return { content: 'This message type is not yet supported', isSystemMessage: true, systemMessageType: 'unsupported' }
   }
 
   return { content: stringContent, isSystemMessage: false }
