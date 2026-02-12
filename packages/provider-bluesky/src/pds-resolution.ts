@@ -1,3 +1,8 @@
+// NOTE: This file is intentionally duplicated in mapping-service and provider-bluesky.
+// The two packages run in different runtimes (CF Worker vs Electron/browser) with no
+// shared dependency path. The logic is stable and small enough that duplication is
+// preferable to a new shared package.
+
 /**
  * PDS resolution utilities for federated AT Protocol users.
  *
@@ -6,6 +11,11 @@
  */
 
 export async function resolvePdsEndpoint(did: string): Promise<string | null> {
+  // did:web: resolution requires fetching https://{domain}/.well-known/did.json
+  // with percent-decoding and SSRF protections. Not yet implemented — return null
+  // so callers get a clear "not found" rather than silently hitting bsky.social.
+  if (did.startsWith('did:web:')) return null
+
   try {
     const response = await fetch(`https://plc.directory/${encodeURIComponent(did)}`)
     if (!response.ok) return null
