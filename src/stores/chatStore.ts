@@ -237,15 +237,17 @@ function parseMessageContent(
     return { content: '', isSystemMessage: true, systemMessageType: 'unknown' }
   }
 
-  // Unknown non-string object - show fallback so users know a message was sent
+  // Unknown non-string object - use sender's fallback text if available
   if (content && typeof content === 'object') {
-    return { content: 'This message type is not yet supported', isSystemMessage: true, systemMessageType: 'unsupported' }
+    const text = msg.fallback || 'This message type is not yet supported'
+    return { content: text, isSystemMessage: true, systemMessageType: 'unsupported' }
   }
 
   // Fallback - convert to string but avoid [object Object]
   const stringContent = content?.toString() || ''
   if (stringContent === '[object Object]') {
-    return { content: 'This message type is not yet supported', isSystemMessage: true, systemMessageType: 'unsupported' }
+    const text = msg.fallback || 'This message type is not yet supported'
+    return { content: text, isSystemMessage: true, systemMessageType: 'unsupported' }
   }
 
   return { content: stringContent, isSystemMessage: false }
