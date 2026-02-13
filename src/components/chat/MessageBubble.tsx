@@ -76,7 +76,7 @@ export function MessageBubble({ message, isOwn, showAvatar, showSenderName = fal
               )}
             </div>
           )}
-          {!isOwn && !showAvatar && isGroupChat && <div className="w-8" />}
+          {!isOwn && !showAvatar && isGroupChat && <div className="w-8 flex-shrink-0" />}
 
           <div
             className={`px-4 py-2.5 ${getBubbleRadius(isOwn, groupPosition)} ${
